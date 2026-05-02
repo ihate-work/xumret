@@ -28,6 +28,10 @@ Depends on `local-ihate-work` from `../ihate_library` (editable install). Provid
 - Entry point: `webui-src/main.tsx`. Vite config + tsconfig at repo root.
 - Build: `make webui-dev` (dev server), `npm run build` (production → webui-assets/).
 
+## Wits
+
+`doc/wits.md` is a living scratchpad of small design ideas and decisions. When you encounter or make a non-obvious design choice worth preserving, add it there. Keep entries very concise — intent + rationale, one or two lines.
+
 ## Coding rules
 
 Inherited from vibra conventions:
