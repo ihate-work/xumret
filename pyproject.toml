@@ -41,7 +41,7 @@ build-backend = "hatchling.build"
 link-mode = "symlink"
 
 [tool.uv.sources]
-local-ihate-work = { path = "../ihate_library", editable = true }
+local-ihate-work = { git = "https://github.com/ihate-work/ihate-library" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xumret"]
