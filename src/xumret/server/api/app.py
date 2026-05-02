@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from xumret.server.api import events, routes
 from xumret.protocol.service import XumretService
 
-WEBUI_DIR = Path(__file__).resolve().parents[4] / "xumret-controller" / "dist"
+WEBUI_DIR = Path(__file__).resolve().parents[4] / "webui-assets"
 
 
 def create_app(*, service: XumretService) -> FastAPI:

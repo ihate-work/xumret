@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -x
+exec $(dirname "$0")/venv/bin/python -m xumret "$@"
