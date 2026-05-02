@@ -1,46 +1,59 @@
-.PHONY: setup setup-server setup-dev sync format typecheck test clean client-local server-dev
 
-# Setup virtual environment and install base dependencies
-setup:
-	uv venv
-	uv sync
+default: deps
+	@echo "deps installed"
 
-# Setup with server dependencies
-setup-server:
-	uv venv
-	uv sync --extra server
+###
+### SECTION dev scripts
+###
 
-# Setup with dev dependencies
-setup-dev:
-	uv venv
-	uv sync --extra server --group dev
+PY_CODE_ROOTS = src/ tests/
 
-# Sync dependencies (after changing pyproject.toml)
-sync:
-	uv sync
-
-# Format code
 format:
 	npx dprint fmt .
 
-# Type check
-typecheck:
-	uv run mypy src
+typecheck: deps
+	venv/bin/mypy src
 
-# Run tests
-test:
-	uv run pytest
+test: deps
+	venv/bin/pytest $(PY_CODE_ROOTS)
+
+test-watch: deps
+	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
 
 # Run client connecting to localhost (for local dev)
-client-local:
-	OTEL_SERVICE_NAME=xumret-client uv run python -m xumret client --host localhost --port 8765
+client-local: deps
+	OTEL_SERVICE_NAME=xumret-client venv/bin/python -m xumret client --host localhost --port 8765
 
 # Run server in dev mode (listens on all interfaces)
-server-dev:
-	OTEL_SERVICE_NAME=xumret-server uv run python -m xumret server --host 0.0.0.0 --port 8765
+server-dev: deps
+	OTEL_SERVICE_NAME=xumret-server venv/bin/python -m xumret server --host 0.0.0.0 --port 8765
 
-# Clean up
+###
+### SECTION deps
+###
+
+PYTHON_VER ?= 3.13
+
+REQUIREMENTS = -r requirements.txt
+UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install
+
+deps: Makefile venv/.deps_installed
+
+venv/.deps_installed: venv/.venv_created requirements.txt
+	$(UV_PIP_INSTALL) $(REQUIREMENTS)
+	@echo "deps installed"
+	@touch $@
+
+venv: venv/.venv_created
+
+venv/.venv_created: Makefile
+	uv venv --clear --python=$(PYTHON_VER) venv
+	@touch $@
+	@rm -fv venv/.deps_installed
+
 clean:
-	rm -rf .venv __pycache__ .pytest_cache .mypy_cache
+	rm -rf venv __pycache__ .pytest_cache .mypy_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+.PHONY:
