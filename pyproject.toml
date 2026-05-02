@@ -35,6 +35,9 @@ build-backend = "hatchling.build"
 [tool.uv]
 link-mode = "symlink"
 
+[[tool.uv.index]]
+url = "https://termux-user-repository.github.io/pypi/"
+
 [tool.uv.sources]
 local-ihate-work = { git = "https://github.com/ihate-work/ihate-library" }
 
