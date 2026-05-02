@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 
+import ihate_work.o11y as o11y
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import StreamingResponse
 
 from xumret.protocol.service import XumretService
+
+logger, *_ = o11y.get_o11y(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -24,6 +27,8 @@ async def event_stream(
 ) -> StreamingResponse:
     queue = svc.subscribe()
 
+    logger.info("sse client connected")
+
     async def generate():
         try:
             while True:
@@ -35,6 +40,7 @@ async def event_stream(
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:
+            logger.info("sse client disconnected")
             svc.unsubscribe(queue)
 
     return StreamingResponse(generate(), media_type="text/event-stream")

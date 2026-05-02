@@ -11,6 +11,8 @@ import asyncio
 import json
 import uuid
 
+import ihate_work.o11y as o11y
+
 from xumret.executor.models import (
     DaemonProcessStatus,
     DaemonStatus,
@@ -30,6 +32,8 @@ from xumret.server_bridge.models import (
     SubmitDaemonStarted,
     SubmitOneshotResult,
 )
+
+logger, *_ = o11y.get_o11y(__name__)
 
 # Maps termux-api binary name → canned stdout content
 _CANNED: dict[str, object] = {
@@ -173,12 +177,14 @@ class DummyExecutor:
         if pc.daemon:
             handle_id = str(uuid.uuid4())
             self._daemons[handle_id] = cmd.command_id
+            logger.info("dummy daemon started", handle_id=handle_id, command_id=cmd.command_id)
             return SubmitDaemonStarted(
                 handle=PhoneCommandDaemonHandle(
                     command_id=cmd.command_id, handle_id=handle_id,
                 )
             )
 
+        logger.debug("dummy oneshot", command_id=cmd.command_id, steps=len(pc.steps))
         step_results: list[ProcessResult] = []
         for step in pc.steps:
             binary = step.argv[0] if step.argv else ""

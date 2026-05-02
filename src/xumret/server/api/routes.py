@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+import ihate_work.o11y as o11y
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from xumret.executor.models import PhoneCommand
 from xumret.protocol.service import XumretService
 from xumret.state.models import CommandHandle, CommandRecord
+
+logger, *_ = o11y.get_o11y(__name__)
 
 router = APIRouter(prefix="/api")
 

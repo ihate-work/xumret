@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import time
 
-from xumret.executor.models import PhoneCommandDaemonHandle, PhoneCommandResult
+import ihate_work.o11y as o11y
+
+from xumret.executor.models import PhoneCommand, PhoneCommandDaemonHandle, PhoneCommandResult
 from xumret.state.models import CommandRecord, CommandStatus, StateEvent
 
-from xumret.executor.models import PhoneCommand
+logger, *_ = o11y.get_o11y(__name__)
 
 
 class PhoneState:
@@ -47,6 +49,7 @@ class PhoneState:
         record = self._commands[command_id]
         record.status = CommandStatus.running
         record.updated_at = time.time()
+        logger.debug("state transition", command_id=command_id, status="running")
         self._emit("command_running", record)
 
     def set_completed(self, command_id: str, *, result: PhoneCommandResult) -> None:
@@ -54,6 +57,7 @@ class PhoneState:
         record.status = CommandStatus.completed
         record.result = result
         record.updated_at = time.time()
+        logger.info("state transition", command_id=command_id, status="completed")
         self._emit("command_completed", record)
 
     def set_failed(self, command_id: str, *, error: str) -> None:
@@ -61,12 +65,14 @@ class PhoneState:
         record.status = CommandStatus.failed
         record.error = error
         record.updated_at = time.time()
+        logger.warning("state transition", command_id=command_id, status="failed", error=error)
         self._emit("command_failed", record)
 
     def set_cancelled(self, command_id: str) -> None:
         record = self._commands[command_id]
         record.status = CommandStatus.cancelled
         record.updated_at = time.time()
+        logger.info("state transition", command_id=command_id, status="cancelled")
         self._emit("command_cancelled", record)
 
     def set_daemon_started(
@@ -76,6 +82,8 @@ class PhoneState:
         record.daemon_handle = handle
         record.updated_at = time.time()
         self._daemon_to_command[handle.handle_id] = command_id
+        logger.info("state transition", command_id=command_id, status="daemon_started",
+                     handle_id=handle.handle_id)
         self._emit("daemon_started", record)
 
     def set_daemon_ended(self, handle_id: str) -> None:

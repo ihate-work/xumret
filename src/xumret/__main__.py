@@ -37,7 +37,11 @@ def single(host: str, port: int, dummy: bool) -> None:
     state = PhoneState()
     service = SingleMain(executor=executor, state=state)
     app = create_app(service=service)
-    uvicorn.run(app, host=host, port=port)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers.clear()
+        uv_logger.propagate = True
+    uvicorn.run(app, host=host, port=port, log_config=None)
 
 
 if __name__ == "__main__":
