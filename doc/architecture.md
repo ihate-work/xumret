@@ -1,43 +1,111 @@
 # Architecture
 
-## Terms
+`xumret` is a remote control for termux and termux-api. It can work in 2 modes:
 
-### server
+- **single** mode: one Python process on the phone. Hosts the controller WebUI (static assets), executes commands via termux-api, tracks their state, and exposes the controller HTTP API (including SSE).
 
-- typically runs in an internet server, exposing HTTP and WS endpoints.
-- handle client sessions (session = WS connection)
-- forward messages between phones and controllers
-- cut bound controller sessions when phone session ended
-- code: xumret.server python package
+- **server-executor** mode: two processes on two hosts. The phone runs an *executor* that runs commands. A *server* on another machine (PC, cloud) keeps state and serves the WebUI. Executor and server communicate over WebSocket.
 
-### phone or phone client
+## Use cases
 
-(effecitvely a reverse shell to run termux-api commands)
+```sh
+# single: everything on phone
+phone $ xumret single
 
-- connects to server via WS
-- on session start, register itself to server
-- handle incoming messages and reply to server
-- run instructed commands
-  - most of the commands starts subprocesses, one-shot or long-live
-- reply message b results to server
-- code: xumret.phone python package
+# server-executor: split across hosts
+phone $ xumret executor --server-addr=SERVER_ADDR --server-secret=SECRET
+pc    $ xumret server --secret=SECRET
+```
 
-### controller or controller client
+## Package layout
 
-- connects to server via WS
-- on session start, register itself to server, and bind to a phone client session
-- after bound to a phone session, send messages to the session and present the response via UI
-- provide interactive UI
-- code: xumret-controller (TypeScript+React+Rxjs components, the official web UI impl)
+```
+src/xumret/
+├── __init__.py
+├── __main__.py              # CLI (click): wires mode-specific pieces
+│
+├── executor/
+│   ├── models.py            # PhoneCommand, ProcessStep, Connection types
+│   ├── protocol.py          # Executor protocol (speaks BridgeCommand types)
+│   ├── local.py             # LocalExecutor: runs processes via termux-api
+│   └── agent.py             # Phone-side WS agent wrapping LocalExecutor
+│
+├── state/
+│   └── manager.py           # StateManager: command lifecycle, result collection
+│
+├── api/
+│   ├── app.py               # FastAPI app factory
+│   ├── routes.py            # REST endpoints (submit command, query status, ...)
+│   └── events.py            # SSE for real-time updates to WebUI
+│
+├── server_bridge/
+│   ├── models.py            # BridgeCommand, SubmitCommand, StatusReport, ...
+│   └── ws.py                # WS protocol, framing, reconnect logic
+│
+└── models/                  # (reserved) shared types if needed beyond the above
+```
 
-## Messages
+## Composition per mode
 
-Messages are categorized into:
+### Single
 
-- c2s (controller to server)
-- c2p (controller to phone, the major use cases)
-- s2p, s2c (heartbeat and status collector)
+```
+                 ┌─────────────────────────────────────────────────┐
+                 │  single process (phone)                         │
+                 │                                                 │
+WebUI ──HTTP──>  │  api ──> StateManager ──> LocalExecutor ──> subprocess
+                 │   │                                        (termux-api)
+                 │   └── static assets (webui-assets/)             │
+                 └─────────────────────────────────────────────────┘
+```
 
-(almost all termux-api use cases are originated by a controller)
+- `api/` serves HTTP + SSE + static files
+- `StateManager` holds a `LocalExecutor` directly (in-process)
+- `server_bridge.models` types are used as plain in-process objects — no serialization
 
-Messages definitions and designed are in xumret.messages python package.
+### Server-executor
+
+```
+ Server process (PC):
+ ┌──────────────────────────────────────────────────────────┐
+ │                                                          │
+ │  api ──> StateManager ──> RemoteExecutor ──WS──┐        │
+ │   │                       (server_bridge)       │        │
+ │   └── static assets                             │        │
+ └─────────────────────────────────────────────────│────────┘
+                                                   │
+ Phone process:                                    │
+ ┌─────────────────────────────────────────────────│────────┐
+ │                                                 │        │
+ │  ExecutorAgent ◀────────────────────────────────┘        │
+ │      │          (server_bridge)                          │
+ │      └──> LocalExecutor ──> subprocess (termux-api)      │
+ │                                                          │
+ └──────────────────────────────────────────────────────────┘
+```
+
+- `StateManager` talks to `RemoteExecutor` which implements the `Executor` protocol over WS
+- Phone-side `ExecutorAgent` wraps `LocalExecutor` behind the same WS protocol
+- Both sides import `server_bridge` for shared WS protocol + message types
+
+## API for WebUI
+
+The HTTP API served by `api/` is the same in both modes. The WebUI does not know which mode is running.
+
+```
+POST   /api/commands          submit a command
+GET    /api/commands           list commands + status
+GET    /api/commands/{id}      get single command status
+DELETE /api/commands/{id}      cancel a command
+GET    /api/events             SSE stream of real-time updates
+```
+
+## Implementation order
+
+1. **Single mode first**: `api/`, `state/`, `executor/local.py`, `executor/models.py`, `server_bridge/models.py`, `executor/protocol.py`
+2. **Server-executor mode**: `server_bridge/ws.py`, `executor/agent.py`, `RemoteExecutor`
+3. **WebUI**: build out `xumret-controller` against the HTTP API
+
+## WebUI
+
+See `xumret-controller/` (React + TypeScript + Tailwind). Talks to the API over HTTP + SSE. Same frontend regardless of mode.

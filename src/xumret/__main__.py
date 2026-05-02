@@ -1,10 +1,11 @@
 import click
 import ihate_work.o11y as o11y
 from dotenv import load_dotenv
+import logging
 
 load_dotenv(override=False)
 o11y.setup_otel()
-o11y.setup_structlog()
+o11y.setup_structlog(level=logging.DEBUG)
 
 
 @click.group()
@@ -12,11 +13,22 @@ def cli():
     """xumret - remote control for termux-api."""
 
 
-from xumret.phone import main as client_cmd
-from xumret.server import main as server_cmd
+@cli.command()
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=8080, type=int, help="Port to listen on")
+def single(host: str, port: int) -> None:
+    """Run xumret in single mode (everything on phone)."""
+    import uvicorn
 
-cli.add_command(server_cmd, "server")
-cli.add_command(client_cmd, "client")
+    from xumret.executor.local import LocalExecutor
+    from xumret.server.api.app import create_app
+    from xumret.state.manager import StateManager
+
+    executor = LocalExecutor()
+    state_manager = StateManager(executor=executor)
+    app = create_app(state_manager=state_manager)
+    uvicorn.run(app, host=host, port=port)
+
 
 if __name__ == "__main__":
     cli()
