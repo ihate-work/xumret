@@ -118,4 +118,10 @@ GET    /api/events             SSE stream of real-time updates
 
 ## WebUI
 
-See `xumret-controller/` (React + TypeScript + Tailwind). Talks to the API over HTTP + SSE. Same frontend regardless of mode.
+Source in `webui-src/`, built output in `webui-assets/`. React + TypeScript + PrimeReact. Talks to the API over HTTP + SSE. Same frontend regardless of mode.
+
+### Mechanism vs policy
+
+The Python backend (executor, state, API) provides **mechanism**: start processes, collect output, track lifecycle. It has no knowledge of termux-api semantics.
+
+The WebUI provides **policy**: it knows which termux-api commands to compose for a use case (e.g. "show SMS inbox" = submit `termux-sms-list`, render results as a message table). Domain-specific workflows live entirely in the frontend.
