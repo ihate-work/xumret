@@ -8,7 +8,7 @@ Please check doc/architecture.md to understand the components and roles.
 
 - src/ : python code for server and clients
 
-- xumret-controller: React+TypeScript code for official controller UI.
+- webui-src/ : React+TypeScript source for the controller UI. Built output goes to webui-assets/.
 
 ## Vendor packages
 
@@ -19,6 +19,14 @@ Their code schematic is [indexed](doc/termux-schematic.md). Please refer to (and
 ## Shared library
 
 Depends on `local-ihate-work` from `../ihate_library` (editable install). Provides `ihate_work.o11y` for observability.
+
+## Web UI rules
+
+- **PrimeReact is the ONLY component library.** Use PrimeReact components unconditionally for all UI (buttons, inputs, layout, data display, overlays, etc.). Do NOT use Tailwind CSS, custom utility classes, or other component libraries.
+- Theme: `lara-light-cyan` (imported in `main.tsx`). Use PrimeReact's built-in theming/styling — do not override with raw CSS unless absolutely necessary.
+- PrimeIcons for all icons (`primeicons` package).
+- Entry point: `webui-src/main.tsx`. Vite config + tsconfig at repo root.
+- Build: `make webui-dev` (dev server), `npm run build` (production → webui-assets/).
 
 ## Coding rules
 

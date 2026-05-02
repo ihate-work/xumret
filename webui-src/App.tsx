@@ -1,7 +1,11 @@
+import { Card } from 'primereact/card';
+
 export function App() {
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <h1 className="text-2xl font-bold text-gray-800">xumret controller</h1>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+      <Card title="xumret controller">
+        <p>Ready.</p>
+      </Card>
     </div>
   );
 }
