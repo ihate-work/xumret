@@ -1,0 +1,9 @@
+[submodule "termux-api"]
+	path = termux-api
+	url = https://github.com/termux/termux-api
+[submodule "termux-api-package"]
+	path = termux-api-package
+	url = https://github.com/termux/termux-api-package
+[submodule "termux-app"]
+	path = termux-app
+	url = https://github.com/termux/termux-app
