@@ -5,6 +5,8 @@ small ideas thay might land in future. each entry should be VERY VERY concise bu
 - [ ] yyyy-mm-dd idea or thought
 - [x] yyyy-mm-dd finished
 
+- [ ] 2026-05-02 first-run-on-real-device warning: xumret is effectively an RCE / reverse shell
+    — user must acknowledge the security implication before the executor starts accepting commands on an actual phone. Dev/emulator can skip.
 - [ ] 2026-05-02 PhoneCommand taxonomy: archetypes, composition patterns, output lifecycle → [doc/phone-command-taxonomy.md](phone-command-taxonomy.md)
     — 5 archetypes (query/action/capture/stream/dialog), 4 topologies (pipe/tempfile/sequence/parallel), 3 output strategies (tail/spool/forward). Pseudocode PhoneCommand v2 for discussion.
 - [ ] 2026-05-02 device state is a single `GET /api/ui_v0/devices/:device_id/state`
