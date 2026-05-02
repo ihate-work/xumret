@@ -1,7 +1,7 @@
 """The abstraction boundary between state management and command execution.
 
-StateManager depends only on the Executor protocol. It does not know or care
-which implementation it holds:
+SingleMain / ServerMain depend only on this protocol. They do not know or care
+which implementation they hold:
 - LocalExecutor: runs subprocesses directly (single mode)
 - RemoteExecutor: forwards over WS via server_bridge (server-executor mode)
 """

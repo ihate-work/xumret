@@ -24,19 +24,26 @@ src/xumret/
 ├── __init__.py
 ├── __main__.py              # CLI (click): wires mode-specific pieces
 │
+├── protocol/
+│   ├── executor.py          # Executor protocol (speaks BridgeCommand types)
+│   └── service.py           # XumretService protocol (async, what routes depend on)
+│
 ├── executor/
 │   ├── models.py            # PhoneCommand, ProcessStep, Connection types
-│   ├── protocol.py          # Executor protocol (speaks BridgeCommand types)
 │   ├── local.py             # LocalExecutor: runs processes via termux-api
 │   └── agent.py             # Phone-side WS agent wrapping LocalExecutor
 │
-├── state/
-│   └── manager.py           # StateManager: command lifecycle, result collection
+├── single.py                # SingleMain: single mode orchestrator
 │
-├── api/
-│   ├── app.py               # FastAPI app factory
-│   ├── routes.py            # REST endpoints (submit command, query status, ...)
-│   └── events.py            # SSE for real-time updates to WebUI
+├── state/
+│   ├── models.py            # CommandStatus, CommandRecord, CommandHandle, StateEvent
+│   └── phone.py             # PhoneState: pure state container (sync, no executor)
+│
+├── server/
+│   └── api/
+│       ├── app.py           # FastAPI app factory (injects XumretService)
+│       ├── routes.py        # REST endpoints (via Depends on XumretService)
+│       └── events.py        # SSE for real-time updates to WebUI
 │
 ├── server_bridge/
 │   ├── models.py            # BridgeCommand, SubmitCommand, StatusReport, ...
@@ -50,17 +57,19 @@ src/xumret/
 ### Single
 
 ```
-                 ┌─────────────────────────────────────────────────┐
-                 │  single process (phone)                         │
-                 │                                                 │
-WebUI ──HTTP──>  │  api ──> StateManager ──> LocalExecutor ──> subprocess
-                 │   │                                        (termux-api)
-                 │   └── static assets (webui-assets/)             │
-                 └─────────────────────────────────────────────────┘
+                 ┌──────────────────────────────────────────────────────────┐
+                 │  single process (phone)                                  │
+                 │                                                          │
+WebUI ──HTTP──>  │  api ──Depends──> SingleMain ──> LocalExecutor ──> subprocess
+                 │   │                  │                            (termux-api)
+                 │   │                  └── PhoneState                       │
+                 │   └── static assets (webui-assets/)                      │
+                 └──────────────────────────────────────────────────────────┘
 ```
 
-- `api/` serves HTTP + SSE + static files
-- `StateManager` holds a `LocalExecutor` directly (in-process)
+- `api/` routes depend on `XumretService` protocol via FastAPI DI
+- `SingleMain` implements `XumretService`, owns `Executor` + `PhoneState`
+- `PhoneState` is a pure state container — no executor reference
 - `server_bridge.models` types are used as plain in-process objects — no serialization
 
 ### Server-executor
@@ -69,8 +78,8 @@ WebUI ──HTTP──>  │  api ──> StateManager ──> LocalExecutor ─
  Server process (PC):
  ┌──────────────────────────────────────────────────────────┐
  │                                                          │
- │  api ──> StateManager ──> RemoteExecutor ──WS──┐        │
- │   │                       (server_bridge)       │        │
+ │  api ──Depends──> ServerMain ──> RemoteExecutor ──WS──┐  │
+ │   │                  │          (server_bridge)       │  │
  │   └── static assets                             │        │
  └─────────────────────────────────────────────────│────────┘
                                                    │
@@ -84,7 +93,8 @@ WebUI ──HTTP──>  │  api ──> StateManager ──> LocalExecutor ─
  └──────────────────────────────────────────────────────────┘
 ```
 
-- `StateManager` talks to `RemoteExecutor` which implements the `Executor` protocol over WS
+- `api/` routes depend on `XumretService` protocol — same as single mode
+- `ServerMain` implements `XumretService`, manages multiple `PhoneState`s + `RemoteExecutor`s
 - Phone-side `ExecutorAgent` wraps `LocalExecutor` behind the same WS protocol
 - Both sides import `server_bridge` for shared WS protocol + message types
 

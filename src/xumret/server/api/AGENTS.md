@@ -2,23 +2,23 @@
 
 FastAPI HTTP API for the controller WebUI. Same surface in both modes — the WebUI does not know which mode is running.
 
+All routes depend on `XumretService` via FastAPI `Depends`. The app factory (`create_app`) stores the service on `app.state.service`.
+
 ## app.py
 
-FastAPI app factory. Wires routes, SSE events, and static asset serving. Receives a `StateManager` instance via dependency injection.
+App factory. Takes an `XumretService`, mounts routes + events + static assets.
 
 ## routes.py
 
 ```
-POST   /api/commands          submit a command
-GET    /api/commands           list commands + status
-GET    /api/commands/{id}      get single command status
-DELETE /api/commands/{id}      cancel a command
+POST   /api/commands          submit a command  -> CommandHandle
+GET    /api/commands           list commands     -> list[CommandResponse]
+GET    /api/commands/{id}      get command       -> CommandResponse
+DELETE /api/commands/{id}      cancel command    -> CommandResponse
 ```
 
 ## events.py
 
 ```
-GET    /api/events             SSE stream of real-time updates
+GET    /api/events             SSE stream of StateEvent updates
 ```
-
-Subscribes to `StateManager` events and streams them to the WebUI.

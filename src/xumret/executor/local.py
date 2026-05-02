@@ -6,6 +6,7 @@ Used in single mode where everything runs on the phone.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 
 import ihate_work.o11y as o11y
@@ -139,23 +140,39 @@ class LocalExecutor:
     async def _spawn_pipeline(self, pc: PhoneCommand) -> list[asyncio.subprocess.Process]:
         """Spawn all steps, wiring connections between them."""
         procs: list[asyncio.subprocess.Process] = []
-        prev_stdout: int | asyncio.subprocess.Process | None = None
+        fds_to_close: list[int] = []
 
         for i, step in enumerate(pc.steps):
-            stdin_source = None
+            stdin_arg: int | None = None
+
+            # Wire stdin from previous step's pipe write-end
             if i > 0 and i - 1 < len(pc.connections):
                 conn = pc.connections[i - 1]
-                if isinstance(conn, Pipe) and procs:
-                    stdin_source = procs[i - 1].stdout
+                if isinstance(conn, Pipe):
+                    stdin_arg = fds_to_close[-1]  # read-end of the pipe
+
+            # Create OS pipe for this step's stdout if next step wants Pipe
+            stdout_arg: int | None = None
+            if i < len(pc.connections) and isinstance(pc.connections[i], Pipe):
+                read_fd, write_fd = os.pipe()
+                stdout_arg = write_fd
+                fds_to_close.append(read_fd)
 
             proc = await asyncio.create_subprocess_exec(
                 *step.argv,
-                stdin=stdin_source if stdin_source else asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
+                stdin=stdin_arg,
+                stdout=stdout_arg if stdout_arg is not None else asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             procs.append(proc)
             logger.debug("spawned step", step=i, argv=step.argv, pid=proc.pid)
+
+            # Close our copy of fds that the child now owns
+            if stdin_arg is not None:
+                os.close(stdin_arg)
+                fds_to_close.remove(stdin_arg)
+            if stdout_arg is not None:
+                os.close(stdout_arg)
 
         return procs
 

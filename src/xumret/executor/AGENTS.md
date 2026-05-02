@@ -10,11 +10,7 @@ Two variants via `daemon` flag:
 - **One-shot** (`daemon=False`): blocks until exit, returns `PhoneCommandResult` (per-step exit code + stdout/stderr).
 - **Daemon** (`daemon=True`): returns `PhoneCommandDaemonHandle` immediately. Query with `query_daemon`, stop with `end_daemon`.
 
-## protocol.py
-
-`Executor` Protocol — the abstraction boundary. `StateManager` talks to this, never to a concrete implementation.
-
-Methods: `submit`, `cancel`, `query_status`, `query_daemon`, `end_daemon`. All speak `server_bridge.models` types.
+The `Executor` protocol lives in `xumret.protocol.executor`. `SingleMain`/`ServerMain` talk to it, never to a concrete implementation.
 
 ## local.py
 

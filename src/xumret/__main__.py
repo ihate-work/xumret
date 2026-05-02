@@ -22,11 +22,13 @@ def single(host: str, port: int) -> None:
 
     from xumret.executor.local import LocalExecutor
     from xumret.server.api.app import create_app
-    from xumret.state.manager import StateManager
+    from xumret.single import SingleMain
+    from xumret.state.phone import PhoneState
 
     executor = LocalExecutor()
-    state_manager = StateManager(executor=executor)
-    app = create_app(state_manager=state_manager)
+    state = PhoneState()
+    service = SingleMain(executor=executor, state=state)
+    app = create_app(service=service)
     uvicorn.run(app, host=host, port=port)
 
 

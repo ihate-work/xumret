@@ -1,13 +1,24 @@
 # state
 
-Command lifecycle tracking and result collection.
+Pure state container for command lifecycle tracking. No executor references, no orchestration.
 
-## manager.py
+## models.py
 
-`StateManager` — holds an `Executor` (via protocol, not concrete type). Tracks all submitted commands, their current state, and results. Provides the data layer that `api/` queries.
+Data types shared by state and service layers:
 
-Responsibilities:
-- Assign command IDs
-- Delegate to `Executor.submit` / `cancel` / `query_daemon` / `end_daemon`
-- Cache results for API queries
-- Emit events for SSE subscribers (new command, status change, completion)
+- `CommandStatus` enum: pending, running, completed, failed, cancelled
+- `CommandRecord`: full command state (id, phone_command, status, result, daemon_handle, error, timestamps)
+- `CommandHandle`: lightweight receipt returned from submit (id, status, created_at)
+- `StateEvent`: pushed to SSE subscribers on every transition (type, command_id, data)
+
+## phone.py
+
+`PhoneState` — pure sync state container for one phone's commands.
+
+**Queries:** `get(command_id)`, `list()`
+
+**Mutations:** `create(...)`, `set_running(...)`, `set_completed(...)`, `set_failed(...)`, `set_cancelled(...)`, `set_daemon_started(...)`, `set_daemon_ended(...)`
+
+Each mutation updates timestamps and emits a `StateEvent` to subscribers.
+
+**SSE:** `subscribe()` returns an `asyncio.Queue[StateEvent]`, `unsubscribe()` removes it.
