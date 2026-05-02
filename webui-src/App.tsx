@@ -1,17 +1,17 @@
 import { Route, Switch, Redirect } from 'wouter';
-import { DeviceList } from './pages/DeviceList';
-import { DeviceState } from './pages/DeviceState';
-import { CommandList } from './pages/CommandList';
-import { CommandDetail } from './pages/CommandDetail';
+import { DevicesPage } from './pages/devices/index';
+import { DevicePage } from './pages/devices/:deviceId/index';
+import { DeviceCommandsPage } from './pages/devices/:deviceId/commands/index';
+import { DeviceCommandPage } from './pages/devices/:deviceId/commands/:commandId/index';
 
 export function App() {
   return (
     <div style={{ maxWidth: '960px', margin: '0 auto', padding: '1rem' }}>
       <Switch>
-        <Route path="/devices" component={DeviceList} />
-        <Route path="/devices/:id" component={DeviceState} />
-        <Route path="/devices/:id/commands" component={CommandList} />
-        <Route path="/devices/:id/commands/:commandId" component={CommandDetail} />
+        <Route path="/devices" component={DevicesPage} />
+        <Route path="/devices/:deviceId" component={DevicePage} />
+        <Route path="/devices/:deviceId/commands" component={DeviceCommandsPage} />
+        <Route path="/devices/:deviceId/commands/:commandId" component={DeviceCommandPage} />
         <Route><Redirect to="/devices" /></Route>
       </Switch>
     </div>

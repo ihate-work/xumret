@@ -14,7 +14,7 @@ const placeholder: Device[] = [
   { id: 'phone-1', name: 'Pixel 7', status: 'online' },
 ];
 
-export function DeviceList() {
+export function DevicesPage() {
   const [, navigate] = useLocation();
 
   return (

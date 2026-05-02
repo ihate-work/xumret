@@ -227,6 +227,37 @@ make deps          # installs requirements.txt into venv
 - asset bundler: `vite`
 - linter: no linter (playground-like repo)
 
+### Type checking
+
+Always run `npx tsc --noEmit` after any file change (create, rename, edit, delete) to catch type errors immediately. Do not consider a change complete until tsc passes cleanly.
+
+### File and path conventions
+
+Source lives in `webui-src/` with three top-level directories:
+
+- `pages/` — route pages (see below)
+- `components/` — shared UI components
+- `util/` — pure helpers, hooks, types
+
+**Page files** follow a nested directory structure that mirrors the route path. Each page is an `index.tsx` inside a directory named after its route segment. Dynamic segments use `:paramName`.
+
+```
+pages/
+  devices/
+    index.tsx                              → /devices          (DevicesPage)
+    :deviceId/
+      index.tsx                            → /devices/:deviceId (DevicePage)
+      commands/
+        index.tsx                          → /devices/:deviceId/commands          (DeviceCommandsPage)
+        :commandId/
+          index.tsx                        → /devices/:deviceId/commands/:commandId (DeviceCommandPage)
+```
+
+Rules:
+- Page component names end with `Page` (e.g. `DevicesPage`, `DevicePage`).
+- Dynamic directory names must match the route param name (`:deviceId`, not `:id`).
+- The `~` import alias resolves to `webui-src/` (configured in both `vite.config.mts` and `tsconfig.json`). Use `~/components/Foo` instead of fragile relative paths for cross-directory imports.
+
 ### Key conventions
 
 - **structlog-style keyword args** for any structured logging

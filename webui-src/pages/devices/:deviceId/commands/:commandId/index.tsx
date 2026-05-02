@@ -4,16 +4,16 @@ import { Panel } from 'primereact/panel';
 import { Tag } from 'primereact/tag';
 import { Link } from 'wouter';
 
-export function CommandDetail({ params }: { params: { id: string; commandId: string } }) {
+export function DeviceCommandPage({ params }: { params: { deviceId: string; commandId: string } }) {
   // TODO: GET /api/ui_v0/devices/:id/commands/:commandId
 
   return (
     <Card
       title={`Command: ${params.commandId}`}
-      subTitle={<Link to={`/devices/${params.id}/commands`}>&larr; commands</Link>}
+      subTitle={<Link to={`/devices/${params.deviceId}/commands`}>&larr; commands</Link>}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-        <Tag value="pending" severity="warn" />
+        <Tag value="pending" severity="warning" />
         <Button label="Cancel" icon="pi pi-times" severity="danger" size="small" />
       </div>
 

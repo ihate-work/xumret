@@ -11,29 +11,29 @@ interface CommandRow {
   created_at: string;
 }
 
-const statusSeverity: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
+const statusSeverity: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'secondary'> = {
   completed: 'success',
   running: 'info',
-  pending: 'warn',
+  pending: 'warning',
   failed: 'danger',
   cancelled: 'secondary',
 };
 
 const placeholder: CommandRow[] = [];
 
-export function CommandList({ params }: { params: { id: string } }) {
+export function DeviceCommandsPage({ params }: { params: { deviceId: string } }) {
   const [, navigate] = useLocation();
 
   return (
     <Card
       title="Commands"
-      subTitle={<Link to={`/devices/${params.id}`}>&larr; device</Link>}
+      subTitle={<Link to={`/devices/${params.deviceId}`}>&larr; device</Link>}
     >
       <DataTable
         value={placeholder}
         emptyMessage="No commands yet."
         selectionMode="single"
-        onRowSelect={(e) => navigate(`/devices/${params.id}/commands/${e.data.command_id}`)}
+        onRowSelect={(e) => navigate(`/devices/${params.deviceId}/commands/${e.data.command_id}`)}
       >
         <Column field="name" header="Name" />
         <Column

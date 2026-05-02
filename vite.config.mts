@@ -4,6 +4,11 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   root: path.join(__dirname, 'webui-src'),
+  resolve: {
+    alias: {
+      '~': path.join(__dirname, 'webui-src'),
+    },
+  },
   build: {
     sourcemap: true,
     outDir: path.join(__dirname, 'webui-assets'),

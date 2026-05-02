@@ -10,7 +10,10 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "paths": {
+      "~/*": ["./webui-src/*"]
+    }
   },
   "include": ["webui-src"],
   "exclude": ["node_modules", "webui-assets"]

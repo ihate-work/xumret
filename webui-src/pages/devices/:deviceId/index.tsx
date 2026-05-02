@@ -5,7 +5,7 @@ import { InputTextarea } from 'primereact/inputtextarea';
 import { Link } from 'wouter';
 import { useState } from 'react';
 
-export function DeviceState({ params }: { params: { id: string } }) {
+export function DevicePage({ params }: { params: { deviceId: string } }) {
   const [commandInput, setCommandInput] = useState('');
 
   const handleSubmit = () => {
@@ -17,7 +17,7 @@ export function DeviceState({ params }: { params: { id: string } }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <Card
-        title={`Device: ${params.id}`}
+        title={`Device: ${params.deviceId}`}
         subTitle={<Link to="/devices">&larr; all devices</Link>}
       >
         <Panel header="State" toggleable>
@@ -37,7 +37,7 @@ export function DeviceState({ params }: { params: { id: string } }) {
           />
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <Button label="Run" icon="pi pi-play" onClick={handleSubmit} />
-            <Link to={`/devices/${params.id}/commands`}>
+            <Link to={`/devices/${params.deviceId}/commands`}>
               <Button label="Command history" icon="pi pi-list" severity="secondary" />
             </Link>
           </div>
