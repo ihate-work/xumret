@@ -55,8 +55,7 @@ class _RunningDaemon:
 class LocalExecutor:
     """Implements Executor protocol by spawning local subprocesses."""
 
-    def __init__(self, timeout: float = 60.0):
-        self._timeout = timeout
+    def __init__(self):
         self._daemons: dict[str, _RunningDaemon] = {}  # handle_id -> daemon
         self._cancel_events: dict[str, asyncio.Event] = {}  # command_id -> event
 

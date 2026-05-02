@@ -10,14 +10,11 @@ from fastapi import APIRouter, Depends, Request
 from starlette.responses import StreamingResponse
 
 from xumret.protocol.service import XumretService
+from xumret.server.api import get_service
 
 logger, *_ = o11y.get_o11y(__name__)
 
 router = APIRouter(prefix="/api")
-
-
-def get_service(request: Request) -> XumretService:
-    return request.app.state.service
 
 
 @router.get("/events")

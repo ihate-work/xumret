@@ -5,20 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 import ihate_work.o11y as o11y
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from xumret.executor.models import PhoneCommand
 from xumret.protocol.service import XumretService
+from xumret.server.api import get_service
 from xumret.state.models import CommandHandle, CommandRecord
 
 logger, *_ = o11y.get_o11y(__name__)
 
 router = APIRouter(prefix="/api")
-
-
-def get_service(request: Request) -> XumretService:
-    return request.app.state.service
 
 
 class SubmitRequest(BaseModel):
@@ -52,6 +49,7 @@ async def submit_command(
     req: SubmitRequest,
     svc: XumretService = Depends(get_service),
 ) -> CommandHandle:
+    logger.info("submit", command_name=req.phone_command.name, daemon=req.phone_command.daemon)
     return await svc.submit(req.phone_command)
 
 
@@ -79,6 +77,7 @@ async def cancel_command(
     command_id: str,
     svc: XumretService = Depends(get_service),
 ) -> CommandResponse:
+    logger.info("cancel", command_id=command_id)
     record = await svc.cancel(command_id)
     if not record:
         raise HTTPException(status_code=404, detail="command not found")

@@ -92,6 +92,8 @@ class PhoneState:
             record = self._commands[command_id]
             record.status = CommandStatus.completed
             record.updated_at = time.time()
+            logger.info("state transition", command_id=command_id, status="daemon_ended",
+                         handle_id=handle_id)
             self._emit("daemon_ended", record)
 
     # --- SSE subscriptions ---
