@@ -28,11 +28,6 @@ dev = [
   "mypy>=1.8.0",
 ]
 
-[project.scripts]
-xumret = "xumret.__main__:cli"
-xumret-client = "xumret.phone:main"
-xumret-server = "xumret.server:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

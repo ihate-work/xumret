@@ -33,11 +33,11 @@ test:
 
 # Run client connecting to localhost (for local dev)
 client-local:
-	OTEL_SERVICE_NAME=xumret-client uv run xumret client --host localhost --port 8765
+	OTEL_SERVICE_NAME=xumret-client uv run python -m xumret client --host localhost --port 8765
 
 # Run server in dev mode (listens on all interfaces)
 server-dev:
-	OTEL_SERVICE_NAME=xumret-server uv run xumret server --host 0.0.0.0 --port 8765
+	OTEL_SERVICE_NAME=xumret-server uv run python -m xumret server --host 0.0.0.0 --port 8765
 
 # Clean up
 clean:
