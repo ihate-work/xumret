@@ -20,6 +20,15 @@ test: deps
 test-watch: deps
 	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
 
+webui-dev: webui-deps
+	npx vite --host
+
+webui-deps: node_modules/.webui_deps_installed
+
+node_modules/.webui_deps_installed: package.json package-lock.json
+	npm ci
+	@touch $@
+
 # Run client connecting to localhost (for local dev)
 client-local: deps
 	OTEL_SERVICE_NAME=xumret-client venv/bin/python -m xumret client --host localhost --port 8765
