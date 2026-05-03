@@ -1,7 +1,8 @@
 # core
 websockets>=12.0
 click>=8.0
-pydantic>=2.12.5
+pydantic
+pydantic-core
 python-dotenv>=1.0
 structlog>=25.0
 
@@ -15,10 +16,9 @@ fastapi>=0.109.0
 uvicorn>=0.27.0
 
 # dev
-httpx>=0.27.0
-pytest>=8.0
-pytest-watcher>=0.4
-mypy>=1.8.0
+# moved to requirements-dev.txt
+
+--extra-index-url https://termux-user-repository.github.io/pypi
 
 # shared library
 local-ihate-work @ git+https://github.com/ihate-work/ihate-library
