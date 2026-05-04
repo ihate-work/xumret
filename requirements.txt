@@ -18,8 +18,6 @@ uvicorn>=0.27.0
 # dev
 # moved to requirements-dev.txt
 
---extra-index-url https://termux-user-repository.github.io/pypi
-
 # shared library
 local-ihate-work @ git+https://github.com/ihate-work/ihate-library
 --editable .
