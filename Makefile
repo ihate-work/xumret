@@ -44,7 +44,7 @@ server-dev: deps
 PYTHON_VER ?= 3.13
 
 REQUIREMENTS = -r requirements.txt
-UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install
+UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install '--only-binary=:all:'
 
 deps: Makefile venv/.deps_installed
 
