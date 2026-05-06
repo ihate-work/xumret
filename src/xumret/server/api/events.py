@@ -1,0 +1,43 @@
+"""SSE endpoint for real-time command updates."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import ihate_work.o11y as o11y
+from fastapi import APIRouter, Depends, Request
+from starlette.responses import StreamingResponse
+
+from xumret.protocol.service import XumretService
+from xumret.server.api import get_service
+
+logger, *_ = o11y.get_o11y(__name__)
+
+router = APIRouter(prefix="/api")
+
+
+@router.get("/events")
+async def event_stream(
+    request: Request,
+    svc: XumretService = Depends(get_service),
+) -> StreamingResponse:
+    queue = svc.subscribe()
+
+    logger.info("sse client connected")
+
+    async def generate():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"event: {event.type}\ndata: {json.dumps(event.data)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            logger.info("sse client disconnected")
+            svc.unsubscribe(queue)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

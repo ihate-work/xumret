@@ -1,0 +1,23 @@
+# core
+websockets>=12.0
+click>=8.0
+pydantic
+pydantic-core
+python-dotenv>=1.0
+structlog>=25.0
+
+# o11y
+opentelemetry-api>=1.38
+opentelemetry-sdk>=1.38
+opentelemetry-exporter-otlp-proto-http>=1.38
+
+# server
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# dev
+# moved to requirements-dev.txt
+
+# shared library
+local-ihate-work @ git+https://github.com/ihate-work/ihate-library
+--editable .

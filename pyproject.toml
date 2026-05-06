@@ -3,52 +3,14 @@ name = "xumret"
 version = "0.1.0"
 description = "Remote control suite for termux-api"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-  "websockets>=12.0",
-  "click>=8.0",
-  "pydantic>=2.12.5",
-  "local-ihate-work",
-  "structlog>=25.0",
-  "opentelemetry-api>=1.38",
-  "opentelemetry-sdk>=1.38",
-  "opentelemetry-exporter-otlp-proto-http>=1.38",
-  "python-dotenv>=1.0",
-]
-
-[project.optional-dependencies]
-server = [
-  "fastapi>=0.109.0",
-  "uvicorn>=0.27.0",
-]
-
-[dependency-groups]
-dev = [
-  "pytest>=8.0",
-  "mypy>=1.8.0",
-]
-
-[project.scripts]
-xumret = "xumret.__main__:cli"
-xumret-client = "xumret.phone:main"
-xumret-server = "xumret.server:main"
+requires-python = ">=3.11"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-link-mode = "symlink"
-
-[tool.uv.sources]
-local-ihate-work = { git = "https://github.com/ihate-work/ihate-library" }
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/xumret"]
-
-[tool.mypy]
-python_version = "3.10"
-strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
