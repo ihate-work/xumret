@@ -15,9 +15,15 @@ Create or update a journal entry capturing what happened in this conversation �
 The filename format is: `journals/YYYYMMDD-p{PID}-{topic}.md`
 
 - Get the Claude Code PID via `echo $PPID` (stable across all bash calls in a session)
-- Infer a 2-3 word kebab-case topic from the session's work (e.g. `ws-protocol`, `webui-layout`, `executor-refactor`). Prefer the verb-object pattern. The topic should always be inferable from the conversation — never use `unknown`.
+- Infer a kebab-case topic slug from the session's work. The slug is how this journal gets found later, so it must be **specific and findable** — name each distinct thread the session touched, not a single generalized label. Length isn't capped; longer multi-word slugs are encouraged when the session spans multiple threads.
+    - Single-thread examples: `o11y-pipeline`, `quickwit-indexes`, `bgm-search` — verb-object pattern works well here.
+    - Multi-thread example: `authelia-bootstrap-nested-services-standardization` — one session that stood up authelia, built a bootstrap-script convention, AND restructured to a nested-services layout. Each thread is a keyword the user might search on later.
+    - Avoid generalized single-label slugs (e.g. `authelia-bootstrap-standard`) when the session also touched orthogonal topics — they won't surface for the other threads.
+    - The topic should always be inferable from the conversation — never use `unknown`.
 
-Example: `journals/20260324-p3593122-ws-protocol.md`
+Examples:
+- single-thread: `journals/20260324-p3593122-o11y-pipeline.md`
+- multi-thread:  `journals/20260506-p250437-authelia-bootstrap-nested-services-standardization.md`
 
 ### 2. Find or create the journal file
 
