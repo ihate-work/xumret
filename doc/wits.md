@@ -14,3 +14,5 @@ small ideas thay might land in future. each entry should be VERY VERY concise bu
 - [ ] 2026-05-02 a command is a multi-step pipeline (each step is a subprocess). Will need API routes to fetch per-step results (stdout/stderr/exit_code) individually, not just the rolled-up command status.
 - [x] 2026-05-04 Vite dev proxy targets phone-hosted `xumret single` at `http://127.0.0.1:8080` via one top-level constant
     — WebUI API contract is `/api` only; keep the host switch in one place for real-device dev.
+- [ ] 2026-05-09 Run as live handle; slug == identifier; reap before re-submit → [doc/runs-design.md](runs-design.md)
+    — submit a `PhoneCommand`, observe a `Run`. Slug is client-declared (mechanism vs. policy). Live + unreaped-terminal both block fresh submit; cancel transitions to terminal, reap removes. Verbs: GET/PUT/POST only, no DELETE.
