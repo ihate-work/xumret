@@ -59,6 +59,15 @@ class LocalExecutor:
         self._daemons: dict[str, _RunningDaemon] = {}  # handle_id -> daemon
         self._cancel_events: dict[str, asyncio.Event] = {}  # command_id -> event
 
+    async def shutdown(self) -> None:
+        """Kill all running daemons. Called on server shutdown."""
+        handles = list(self._daemons.keys())
+        for handle_id in handles:
+            daemon = self._daemons.pop(handle_id, None)
+            if daemon:
+                logger.info("shutdown: killing daemon", handle_id=handle_id)
+                await self._kill_daemon(daemon)
+
     # ── Executor protocol ────────────────────────────────────────────
 
     async def submit(self, cmd: SubmitCommand) -> SubmitOneshotResult | SubmitDaemonStarted | CommandError:

@@ -2,6 +2,10 @@
 
 Prefix: `/api/ui_v0/`
 
+See [`design-process-management.md`](design-process-management.md) for the semantics behind `runs`,
+slugs, and reap. This file is the route inventory; `design-process-management.md` is the
+source of truth for behaviour.
+
 ## Devices
 
 ```
@@ -15,17 +19,40 @@ GET    /api/ui_v0/devices/:device_id
 GET    /api/ui_v0/devices/:device_id/state
 ```
 
-## Commands
+## Runs
+
+A run is a `PhoneCommand` being (or having been) executed. The `slug` is
+the run identifier, scoped to the device. See `design-process-management.md`.
 
 ```
-POST   /api/ui_v0/devices/:device_id/commands
-GET    /api/ui_v0/devices/:device_id/commands
-GET    /api/ui_v0/devices/:device_id/commands/:command_id
-DELETE /api/ui_v0/devices/:device_id/commands/:command_id
+POST   /api/ui_v0/devices/:device_id/runs                  # submit
+GET    /api/ui_v0/devices/:device_id/runs                  # list
+GET    /api/ui_v0/devices/:device_id/runs/:slug            # slim record
+GET    /api/ui_v0/devices/:device_id/runs/:slug/state      # transitions + output buffers
+POST   /api/ui_v0/devices/:device_id/runs/:slug/stop       # cancel a live run
+POST   /api/ui_v0/devices/:device_id/runs/:slug/reap       # reap a terminal run
 ```
+
+Verbs: GET (safe), PUT (idempotent upsert), POST (idempotent named action).
+DELETE is not used.
 
 ## Events
 
 ```
 GET    /api/ui_v0/devices/:device_id/events
 ```
+
+SSE stream for the device. Two event categories:
+
+- `event: run_state` — per-run lifecycle deltas (created, step_started,
+  step_exited, running, completed, failed, cancelled, daemon_*).
+- `event: run_output` — incremental stdout/stderr per process. Payload
+  shape is driven by the step's `StreamConfig` (lines vs. binary) and
+  back-pressure setting:
+  `{slug, step_index, fd, lines?: str[], bytes?: str (base64),
+  dropped_lines?: int, dropped_bytes?: int}`. Drop counters are deltas
+  since the previous event for that fd.
+
+Late subscribers fetch `…/runs/:slug/state` for a current snapshot, then
+attach to SSE for deltas. The client merges snapshot + deltas
+event-sourcing-style; no in-band snapshot event is sent.

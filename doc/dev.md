@@ -196,6 +196,20 @@ If a service has to be started -- ask your human to do so. He likely already sta
 
 As a smart agent, never start a long-running server (uvicorn, flask, etc.) without a `timeout` wrapper unless you REALLY have to do so.
 
+### Graceful shutdown for child processes
+
+Any component that spawns child processes (subprocesses, daemons, background tasks) **must** clean them up on server shutdown. Rely on **graceful shutdown only** — do not attempt to revive or reconnect to orphans after a server restart.
+
+Rules:
+
+1. **FastAPI lifespan** is the shutdown hook. The `lifespan` async context manager's teardown phase (`yield` → exit) must call `shutdown()` on the service/executor.
+2. **Executor.shutdown()** iterates all tracked child processes and kills them (terminate → brief wait → force kill → drain).
+3. **Service.shutdown()** cancels in-flight `asyncio.Task`s, then delegates to the executor.
+4. **Don't rely on `__del__`** — Python doesn't guarantee finalizer execution. Use explicit shutdown.
+5. **SIGKILL / OOM**: nothing runs. For pipe-connected children, the broken pipe delivers SIGPIPE which kills them. For file-spooled children, add a startup reaper that scans stale PID files if needed.
+
+The priority order: graceful shutdown (covers 95%) > SIGPIPE from broken pipes (automatic) > startup orphan reaper (only if file-spooling is used).
+
 ### dotenv
 
 Always use `load_dotenv(override=False)` so that env vars set on the command line (e.g. in Makefile targets) take precedence over `.env` file values.
