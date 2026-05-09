@@ -35,6 +35,15 @@ class SingleMain:
         self._state = state
         self._tasks: dict[str, asyncio.Task] = {}
 
+    async def shutdown(self) -> None:
+        """Cancel in-flight tasks and shut down the executor."""
+        for cid, task in self._tasks.items():
+            if not task.done():
+                logger.info("shutdown: cancelling task", command_id=cid)
+                task.cancel()
+        if hasattr(self._executor, "shutdown"):
+            await self._executor.shutdown()
+
     # --- XumretService interface ---
 
     async def submit(self, phone_command: PhoneCommand) -> CommandHandle:
