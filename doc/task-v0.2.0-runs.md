@@ -1,10 +1,10 @@
 # Task: v0.2.0 — Runs (subprocess management refresh)
 
 Implementation checklist for the v0.2.0 subprocess-management work.
-Design source of truth: [`runs-design.md`](runs-design.md).
+Design source of truth: [`design-process-management.md`](design-process-management.md).
 Roadmap entry: [`roadmap.md`](roadmap.md).
 
-## 0. Decisions (resolved — see [`runs-design.md`](runs-design.md))
+## 0. Decisions (resolved — see [`design-process-management.md`](design-process-management.md))
 
 - [x] **D1.** Submit endpoint = single `POST /api/runs`; slug in body.
 - [x] **D2.** Output tail cap = **128 KiB per process** (per pipeline step),
@@ -20,7 +20,7 @@ Roadmap entry: [`roadmap.md`](roadmap.md).
 Rebuild executor → state plumbing around per-run `Run` objects. Single mode
 only at this stage; remote bridge stays out of scope.
 
-### A.1 New / renamed types in `src/xumret/state/`
+### A.1 New / renamed types in `src/xumret/state/` and `src/xumret/executor/`
 
 - [ ] Rename `CommandStatus → RunStatus` (`state/models.py`).
 - [ ] Rename `CommandRecord → RunRecord` (`state/models.py`); replace
@@ -29,7 +29,14 @@ only at this stage; remote bridge stays out of scope.
 - [ ] Add `RunStateEvent` discriminated union: `created`, `step_started`
   (pid), `step_exited` (exit_code), `running`, `completed`, `failed`,
   `cancelled`, `daemon_started`, `daemon_status`, `daemon_ended`.
-- [ ] Add `RunOutputEvent`: `{slug, step_index, stream, offset, bytes}`.
+- [ ] Add `RunOutputEvent`: `{slug, step_index, fd: "stdout"|"stderr",
+  lines?: list[str], bytes?: str (base64), dropped_lines?: int,
+  dropped_bytes?: int}`. Drop counters are **deltas** since the previous
+  event for that fd, not running totals.
+- [ ] Add `StreamConfig(mode: "lines"|"binary"="lines",
+  back_pressure: bool=False)` in `executor/models.py`.
+- [ ] Extend `ProcessStep` with `stdout_stream: StreamConfig` and
+  `stderr_stream: StreamConfig` (defaults to `StreamConfig()`).
 - [ ] Add `Run` class (live handle): `slug`, `phone_command`, `created_at`,
   `status` property, `record` property, `emit(event)`, `subscribe()`.
 
@@ -39,17 +46,28 @@ only at this stage; remote bridge stays out of scope.
   Executor calls `run.emit(...)` instead of returning values.
 - [ ] Per-step lifecycle emission: `step_started` (pid), `step_exited`
   (exit_code), terminal `completed` / `failed` / `cancelled`.
-- [ ] **Replace `proc.communicate()` with async chunked reads** of
-  `proc.stdout` / `proc.stderr`. For each chunk:
-  - Append to per-step rolling tail buffer (cap 128 KiB; FIFO drop).
-  - Emit `RunOutputEvent` with the chunk and current offset.
-  This unifies one-shot and daemon paths — both stream output identically;
-  daemons just stream longer.
+- [ ] **Replace `proc.communicate()` with per-fd async reader tasks.** For
+  each captured fd (every step's stderr; terminal-step stdout when not
+  piped onward):
+  - Spawn a reader task that reads chunks (binary) or lines
+    (`asyncio.StreamReader.readline` with UTF-8 decode + `errors="replace"`)
+    according to the step's `StreamConfig.mode`.
+  - Append decoded data to a rolling 128 KiB tail buffer (per fd).
+  - Emit `RunOutputEvent`s with `lines` or `bytes` populated according to
+    the mode.
+  - On `back_pressure=True`: pause reads when subscriber queues are full
+    (let the OS pipe buffer fill, slowing the subprocess).
+  - On `back_pressure=False`: always read; if a subscriber queue is full,
+    drop the oldest output entry for that subscriber and accumulate
+    `dropped_lines` / `dropped_bytes` to attach to the next event for that
+    fd.
+  - This unifies one-shot and daemon paths — both stream identically;
+    daemons just stream longer.
 - [ ] Daemon path emits `daemon_started` after spawn; `daemon_ended` on
   termination. `daemon_status` is only emitted on explicit query (no
   periodic polling).
-- [ ] Cancel path: kill subprocesses, drain remaining output, emit
-  `cancelled`.
+- [ ] Cancel path: kill subprocesses, drain remaining output via the
+  reader tasks, emit `cancelled`.
 
 ### A.3 PhoneState rewire (`src/xumret/state/phone.py`)
 
@@ -80,10 +98,12 @@ only at this stage; remote bridge stays out of scope.
 - [ ] Add `RunOption(slug: str | None = None, mutex_by_slug: bool = False)`
   in `executor/models.py`.
 - [ ] Add `run_option: RunOption = RunOption()` field on `PhoneCommand`.
+- [ ] (StreamConfig + per-step `stdout_stream`/`stderr_stream` already
+  added in A.1.)
 
 ### B.2 Submit semantics (`PhoneState.submit`)
 
-Implement the decision matrix from `runs-design.md`:
+Implement the decision matrix from `design-process-management.md`:
 
 - [ ] `slug=None` → auto-gen UUID4 slug; create fresh run.
 - [ ] `slug=X, mutex_by_slug=False`, live `X` exists → return existing run.
@@ -109,7 +129,7 @@ Implement the decision matrix from `runs-design.md`:
 ## C. HTTP API migration
 
 Rename to `/api/runs/...` and add the new endpoints. Verbs limited to GET /
-PUT / POST per `runs-design.md`; remove DELETE.
+PUT / POST per `design-process-management.md`; remove DELETE.
 
 ### C.1 Routes (`src/xumret/server/api/routes.py`)
 
@@ -172,7 +192,7 @@ bridge work begins.
 - All code paths covered by tests above pass `make test`.
 - `make webui-dev` smoke flow works against a real phone (one-shot +
   daemon both observable end-to-end).
-- `runs-design.md` open decisions are pinned (no `Lean: ...` markers
+- `design-process-management.md` open decisions are pinned (no `Lean: ...` markers
   left).
 - `journals/` entry written summarising what shipped and any deviations
   from the design.
@@ -183,4 +203,4 @@ bridge work begins.
 - Disconnect-recovery policy on reconnect.
 - Auto-reap of fire-and-forget runs.
 - TTL-based zombie GC.
-- `phone-command-taxonomy.md` (separate roadmap item).
+- `design-command-compose.md` (separate roadmap item).

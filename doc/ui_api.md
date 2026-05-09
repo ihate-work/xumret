@@ -2,8 +2,8 @@
 
 Prefix: `/api/ui_v0/`
 
-See [`runs-design.md`](runs-design.md) for the semantics behind `runs`,
-slugs, and reap. This file is the route inventory; `runs-design.md` is the
+See [`design-process-management.md`](design-process-management.md) for the semantics behind `runs`,
+slugs, and reap. This file is the route inventory; `design-process-management.md` is the
 source of truth for behaviour.
 
 ## Devices
@@ -22,7 +22,7 @@ GET    /api/ui_v0/devices/:device_id/state
 ## Runs
 
 A run is a `PhoneCommand` being (or having been) executed. The `slug` is
-the run identifier, scoped to the device. See `runs-design.md`.
+the run identifier, scoped to the device. See `design-process-management.md`.
 
 ```
 POST   /api/ui_v0/devices/:device_id/runs                  # submit
@@ -46,8 +46,12 @@ SSE stream for the device. Two event categories:
 
 - `event: run_state` — per-run lifecycle deltas (created, step_started,
   step_exited, running, completed, failed, cancelled, daemon_*).
-- `event: run_output` — incremental stdout/stderr chunks per process:
-  `{slug, step_index, stream, offset, bytes}`.
+- `event: run_output` — incremental stdout/stderr per process. Payload
+  shape is driven by the step's `StreamConfig` (lines vs. binary) and
+  back-pressure setting:
+  `{slug, step_index, fd, lines?: str[], bytes?: str (base64),
+  dropped_lines?: int, dropped_bytes?: int}`. Drop counters are deltas
+  since the previous event for that fd.
 
 Late subscribers fetch `…/runs/:slug/state` for a current snapshot, then
 attach to SSE for deltas. The client merges snapshot + deltas

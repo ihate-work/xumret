@@ -93,9 +93,13 @@ class Run:
 State-model rename ripple: `CommandStatus → RunStatus`, `CommandRecord → RunRecord`,
 `CommandHandle` is subsumed by `Run` itself.
 
-`RunEvent` is a discriminated union of state transitions:
-`step_started`, `step_exited`, `completed`, `failed`, `cancelled`,
-`daemon_started`, `daemon_status`, `daemon_ended`.
+`RunEvent` splits into two discriminated unions:
+
+- **`RunStateEvent`** — `created`, `step_started`, `step_exited`, `running`,
+  `completed`, `failed`, `cancelled`, `daemon_started`, `daemon_status`,
+  `daemon_ended`. Lifecycle deltas.
+- **`RunOutputEvent`** — incremental stdout/stderr; shape defined under
+  "SSE event types" below.
 
 ### Wiring
 
@@ -111,6 +115,15 @@ State-model rename ripple: `CommandStatus → RunStatus`, `CommandRecord → Run
 - `PhoneState` gains a meta-channel for "new run started / removed", so SSE
   subscribers don't have to enumerate runs at attach time.
 
+### `SingleMain` and `PhoneState` are independent
+
+`PhoneState` is a phone-scoped state container. `SingleMain` is one
+orchestrator that holds one `PhoneState` plus a `LocalExecutor`. A future
+multi-device orchestrator (working name `HubMain`) will hold many
+`PhoneState`s plus the corresponding executors. Both implement
+`XumretService`. They are not merged: `PhoneState` must remain reusable
+across orchestrator shapes.
+
 ### Late-subscriber semantics
 
 Late subscribers fetch `GET /api/runs/{slug}/state` for the current snapshot
@@ -118,6 +131,37 @@ Late subscribers fetch `GET /api/runs/{slug}/state` for the current snapshot
 going forward. **No synthetic in-band snapshot event.** SSE carries deltas
 only; the client merges (event-sourcing-style) snapshot + deltas to render
 current state.
+
+### Per-stream configuration (`StreamConfig`)
+
+Each `ProcessStep` carries a `StreamConfig` for `stdout` and `stderr`,
+declared by the client on the `PhoneCommand`:
+
+```python
+class StreamConfig(BaseModel):
+    mode: Literal["lines", "binary"] = "lines"
+    back_pressure: bool = False
+```
+
+`mode` controls how the executor frames reads from the fd:
+
+- `lines` — decode bytes as UTF-8 (`errors="replace"`), split on `\n`, emit
+  lines as JSON strings (no trailing newline). Natural for log-like output.
+- `binary` — raw byte chunks, base64-encoded into the JSON event payload.
+  Use for media, captures, or anything not safely UTF-8.
+
+`back_pressure` controls overflow handling when downstream is slow:
+
+- `True` — executor reads only when there is room in the subscriber queue.
+  The subprocess naturally pauses on pipe buffer fill. No drops; events
+  always carry data.
+- `False` — executor always drains. If a subscriber queue fills, drop oldest
+  output entries for that subscriber and report counts via `dropped_*`
+  fields on the next event.
+
+Stdout `StreamConfig` is honored only when the step's stdout is actually
+captured (terminal step in a pipe pipeline, or a temp-file connection).
+Piped-to-next stdouts ignore it. Stderr is always captured per-step.
 
 ### SSE event types
 
@@ -129,12 +173,33 @@ The `/events` SSE stream emits two categories of event:
    relevant metadata (pid for step_started, exit_code for step_exited,
    handle_id for daemon_*).
 
-2. **`run_output`** — incremental stdout/stderr from a process. Payload:
-   `{slug, step_index, stream: "stdout"|"stderr", offset, bytes}`. Emitted
-   as the executor reads chunks from the subprocess pipe.
+2. **`run_output`** — incremental stdout/stderr from a process:
+
+   ```python
+   class RunOutputEvent(BaseModel):
+       slug: str
+       step_index: int
+       fd: Literal["stdout", "stderr"]
+       # populated based on the step's StreamConfig.mode
+       lines: list[str] | None = None
+       bytes: str | None = None             # base64-encoded
+       # populated when StreamConfig.back_pressure=False and drops occurred
+       dropped_lines: int | None = None     # delta since last event for this fd
+       dropped_bytes: int | None = None
+   ```
+
+   `dropped_*` fields are **deltas** (not running totals); clients can
+   accumulate them if they want a cumulative figure.
 
 The client treats the SSE stream as a delta log: it consumes both types and
 maintains its own model of run state plus per-step output.
+
+### Wire format note
+
+JSON strings cannot carry arbitrary bytes natively (they are UTF-8 text).
+SSE is line-based text. So `binary`-mode output is **base64-encoded** into
+a string field; `lines`-mode output is already strings (decoded by the
+executor before emission).
 
 ### Internal event delivery
 
