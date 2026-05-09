@@ -1,86 +1,15 @@
-"""The command protocol between state manager and executor.
+"""Wire-protocol models for the server↔executor bridge.
 
-BridgeCommand is the base for all messages. Used over WS in server-executor mode,
-and as plain in-process objects in single mode.
+OUT OF SCOPE for v0.2.0. The previous content (CommandStatus, SubmitCommand,
+CancelCommand, daemon report types, etc.) was tied to the pre-Run command-id
+protocol and has been removed alongside the executor-protocol rewrite.
 
-One-shot flow: submit blocks until all processes exit, returns SubmitOneshotResult.
-Daemon flow: submit returns SubmitDaemonStarted immediately. Caller uses
-query_daemon to poll status, end_daemon to terminate.
+When bridge work resumes (`server_bridge/ws.py`, `RemoteExecutor`), this file
+needs a fresh design around the new `Run` lifecycle:
+
+- forward submit / stop / reap / query_daemon_status as messages
+- forward `RunStateEvent` and `RunOutputEvent` back to the controller
+- use `slug` as the unified identifier
+
+See `doc/design-process-management.md`.
 """
-
-from __future__ import annotations
-
-from typing import Literal
-
-from pydantic import BaseModel
-
-from xumret.executor.models import (
-    DaemonStatus,
-    PhoneCommand,
-    PhoneCommandDaemonHandle,
-    PhoneCommandResult,
-    ProcessResult,
-)
-
-
-class BridgeCommand(BaseModel):
-    type: str
-
-
-# --- Server -> Executor ---
-
-
-class SubmitCommand(BridgeCommand):
-    type: Literal["submit"] = "submit"
-    command_id: str
-    phone_command: PhoneCommand  # daemon flag is on PhoneCommand
-
-
-class CancelCommand(BridgeCommand):
-    type: Literal["cancel"] = "cancel"
-    command_id: str
-
-
-class QueryStatus(BridgeCommand):
-    type: Literal["query_status"] = "query_status"
-    command_id: str
-
-
-class QueryDaemon(BridgeCommand):
-    type: Literal["query_daemon"] = "query_daemon"
-    handle_id: str
-
-
-class EndDaemon(BridgeCommand):
-    type: Literal["end_daemon"] = "end_daemon"
-    handle_id: str
-
-
-# --- Executor -> Server ---
-
-
-class SubmitOneshotResult(BridgeCommand):
-    type: Literal["oneshot_result"] = "oneshot_result"
-    result: PhoneCommandResult
-
-
-class SubmitDaemonStarted(BridgeCommand):
-    type: Literal["daemon_started"] = "daemon_started"
-    handle: PhoneCommandDaemonHandle
-
-
-class DaemonStatusReport(BridgeCommand):
-    type: Literal["daemon_status"] = "daemon_status"
-    status: DaemonStatus
-
-
-class DaemonEnded(BridgeCommand):
-    type: Literal["daemon_ended"] = "daemon_ended"
-    handle_id: str
-    final_steps: list[ProcessResult]  # final exit codes + outputs
-
-
-class CommandError(BridgeCommand):
-    type: Literal["error"] = "error"
-    command_id: str
-    error: str

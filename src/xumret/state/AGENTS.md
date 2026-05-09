@@ -1,24 +1,49 @@
 # state
 
-Pure state container for command lifecycle tracking. No executor references, no orchestration.
+Run lifecycle types and per-phone Run registry. No executor references.
 
 ## models.py
 
 Data types shared by state and service layers:
 
-- `CommandStatus` enum: pending, running, completed, failed, cancelled
-- `CommandRecord`: full command state (id, phone_command, status, result, daemon_handle, error, timestamps)
-- `CommandHandle`: lightweight receipt returned from submit (id, status, created_at)
-- `StateEvent`: pushed to SSE subscribers on every transition (type, command_id, data)
+- `RunStatus` enum: pending, running, completed, failed, cancelled
+- `RunStateEvent` discriminated union: created, step_started (pid),
+  step_exited (exit_code), running, completed, failed (error), cancelled,
+  daemon_started, daemon_status, daemon_ended
+- `RunOutputEvent`: per-step incremental stdout/stderr
+  (`lines?` / `bytes?` (base64) / `dropped_lines?` / `dropped_bytes?`)
+- `RunRecord`: materialized snapshot — slug, phone_command, status, steps[],
+  transitions[], timestamps. Also serves as the API response shape.
+- `StepState`: per-step pid, exit_code, stdout/stderr tails (128 KiB cap),
+  drop counters
+
+`TERMINAL_STATUSES`: completed / failed / cancelled.
+
+## run.py
+
+`Run` — live, subscribable handle for one execution.
+
+- `slug`, `phone_command`, `created_at`
+- `status`, `is_live`, `is_terminal`
+- `record` — current materialized `RunRecord`
+- `emit(event)` — apply to internal state, fire listeners (sync), broadcast
+  to subscriber queues
+- `subscribe()` / `unsubscribe(q)` — async queue per consumer
+- `add_listener(fn)` / `remove_listener(fn)` — sync callback during emit
 
 ## phone.py
 
-`PhoneState` — pure sync state container for one phone's commands.
+`PhoneState` — slug-keyed registry of Runs for one phone.
 
-**Queries:** `get(command_id)`, `list()`
+**Queries:** `get(slug)`, `list()`
 
-**Mutations:** `create(...)`, `set_running(...)`, `set_completed(...)`, `set_failed(...)`, `set_cancelled(...)`, `set_daemon_started(...)`, `set_daemon_ended(...)`
+**Mutations:**
+- `submit(phone_command)` — applies the slug decision matrix (see
+  `doc/design-process-management.md`); returns existing live run on
+  idempotent join, raises `SubmitConflict` on terminal-unreaped or
+  live-mutex collision, otherwise creates a fresh `Run`.
+- `reap(slug)` — removes a terminal run; raises `StillLive` for live runs,
+  `UnknownSlug` if missing.
 
-Each mutation updates timestamps and emits a `StateEvent` to subscribers.
-
-**SSE:** `subscribe()` returns an `asyncio.Queue[StateEvent]`, `unsubscribe()` removes it.
+**Phone-wide SSE:** `subscribe()` / `unsubscribe(q)`. Fan-out is sync (a
+listener on each Run), so no event loop is required to emit.

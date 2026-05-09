@@ -1,34 +1,27 @@
-"""The abstraction boundary between state management and command execution.
+"""Boundary between phone-state orchestration and command execution.
 
-SingleMain / ServerMain depend only on this protocol. They do not know or care
-which implementation they hold:
-- LocalExecutor: runs subprocesses directly (single mode)
-- RemoteExecutor: forwards over WS via server_bridge (server-executor mode)
+The executor is given a `Run` and drives it forward by emitting events
+(`run.emit(...)`). It produces no return value — observers read the run's
+materialized record or subscribe to its event stream.
+
+Implementations:
+- `LocalExecutor`: spawns subprocesses on this machine.
+- `RemoteExecutor` (deferred): forwards events over a WS bridge.
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from xumret.server_bridge.models import (
-    CancelCommand,
-    CommandError,
-    DaemonEnded,
-    DaemonStatusReport,
-    EndDaemon,
-    QueryDaemon,
-    QueryStatus,
-    SubmitCommand,
-    SubmitDaemonStarted,
-    SubmitOneshotResult,
-)
-
-SubmitResponse = SubmitOneshotResult | SubmitDaemonStarted | CommandError
+from xumret.state.run import Run
 
 
 class Executor(Protocol):
-    async def submit(self, cmd: SubmitCommand) -> SubmitResponse: ...
-    async def cancel(self, cmd: CancelCommand) -> None: ...
-    async def query_status(self, cmd: QueryStatus) -> DaemonStatusReport | CommandError: ...
-    async def query_daemon(self, cmd: QueryDaemon) -> DaemonStatusReport: ...
-    async def end_daemon(self, cmd: EndDaemon) -> DaemonEnded: ...
+    async def run(self, run: Run) -> None:
+        """Drive the run to a terminal state, emitting events along the way."""
+
+    async def stop(self, slug: str) -> None:
+        """Signal cancellation to a live run. No-op if unknown or already terminal."""
+
+    async def shutdown(self) -> None:
+        """Best-effort shutdown of all in-flight runs."""

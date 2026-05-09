@@ -1,165 +1,190 @@
 """LocalExecutor — runs PhoneCommand pipelines as subprocesses.
 
-Used in single mode where everything runs on the phone.
+Single mode: everything runs on this machine. Each `run()` call drives one
+`Run`, emitting `RunStateEvent`s for lifecycle and `RunOutputEvent`s for
+incremental stdout/stderr. No return values — the Run is the observation point.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
-import uuid
+import time
+from typing import Literal
 
 import ihate_work.o11y as o11y
 
 from xumret.executor.models import (
-    DaemonProcessStatus,
-    DaemonStatus,
     PhoneCommand,
-    PhoneCommandDaemonHandle,
-    PhoneCommandResult,
     Pipe,
-    ProcessResult,
+    StreamConfig,
 )
-from xumret.server_bridge.models import (
-    CancelCommand,
-    CommandError,
-    DaemonEnded,
-    DaemonStatusReport,
-    EndDaemon,
-    QueryDaemon,
-    QueryStatus,
-    SubmitCommand,
-    SubmitDaemonStarted,
-    SubmitOneshotResult,
+from xumret.state.models import (
+    RunOutputEvent,
+    RunStateCancelled,
+    RunStateCompleted,
+    RunStateDaemonEnded,
+    RunStateDaemonStarted,
+    RunStateFailed,
+    RunStateRunning,
+    RunStateStepExited,
+    RunStateStepStarted,
 )
+from xumret.state.run import Run
 
 logger, *_ = o11y.get_o11y(__name__)
 
-
-class _RunningDaemon:
-    """Bookkeeping for a running daemon pipeline."""
-
-    def __init__(
-        self,
-        handle_id: str,
-        command_id: str,
-        procs: list[asyncio.subprocess.Process],
-    ):
-        self.handle_id = handle_id
-        self.command_id = command_id
-        self.procs = procs
-        self.stdout_tails: list[str] = [""] * len(procs)
-        self.stderr_tails: list[str] = [""] * len(procs)
+_BINARY_CHUNK = 4096
+_KILL_GRACE_SEC = 0.5
 
 
 class LocalExecutor:
-    """Implements Executor protocol by spawning local subprocesses."""
+    """Implements `Executor` by spawning local subprocesses."""
 
-    def __init__(self):
-        self._daemons: dict[str, _RunningDaemon] = {}  # handle_id -> daemon
-        self._cancel_events: dict[str, asyncio.Event] = {}  # command_id -> event
-
-    async def shutdown(self) -> None:
-        """Kill all running daemons. Called on server shutdown."""
-        handles = list(self._daemons.keys())
-        for handle_id in handles:
-            daemon = self._daemons.pop(handle_id, None)
-            if daemon:
-                logger.info("shutdown: killing daemon", handle_id=handle_id)
-                await self._kill_daemon(daemon)
+    def __init__(self) -> None:
+        self._cancel_events: dict[str, asyncio.Event] = {}
+        self._procs: dict[str, list[asyncio.subprocess.Process]] = {}
 
     # ── Executor protocol ────────────────────────────────────────────
 
-    async def submit(self, cmd: SubmitCommand) -> SubmitOneshotResult | SubmitDaemonStarted | CommandError:
-        pc = cmd.phone_command
-        try:
-            if pc.daemon:
-                return await self._start_daemon(cmd)
-            else:
-                return await self._run_oneshot(cmd)
-        except Exception as e:
-            logger.exception("submit failed", command_id=cmd.command_id, error=str(e))
-            return CommandError(command_id=cmd.command_id, error=str(e))
-
-    async def cancel(self, cmd: CancelCommand) -> None:
-        ev = self._cancel_events.get(cmd.command_id)
-        if ev:
-            ev.set()
-        # Also kill any daemon whose command_id matches
-        for daemon in list(self._daemons.values()):
-            if daemon.command_id == cmd.command_id:
-                await self._kill_daemon(daemon)
-
-    async def query_status(self, cmd: QueryStatus) -> DaemonStatusReport | CommandError:
-        for daemon in self._daemons.values():
-            if daemon.command_id == cmd.command_id:
-                return self._build_daemon_status(daemon)
-        return CommandError(command_id=cmd.command_id, error="not_found")
-
-    async def query_daemon(self, cmd: QueryDaemon) -> DaemonStatusReport:
-        daemon = self._daemons.get(cmd.handle_id)
-        if not daemon:
-            return DaemonStatusReport(status=DaemonStatus(
-                handle_id=cmd.handle_id, steps=[], all_running=False,
-            ))
-        return self._build_daemon_status(daemon)
-
-    async def end_daemon(self, cmd: EndDaemon) -> DaemonEnded:
-        daemon = self._daemons.pop(cmd.handle_id, None)
-        if not daemon:
-            return DaemonEnded(handle_id=cmd.handle_id, final_steps=[])
-        final = await self._kill_daemon(daemon)
-        return DaemonEnded(handle_id=cmd.handle_id, final_steps=final)
-
-    # ── One-shot execution ───────────────────────────────────────────
-
-    async def _run_oneshot(self, cmd: SubmitCommand) -> SubmitOneshotResult | CommandError:
+    async def run(self, run: Run) -> None:
+        slug = run.slug
         cancel_ev = asyncio.Event()
-        self._cancel_events[cmd.command_id] = cancel_ev
+        self._cancel_events[slug] = cancel_ev
         try:
-            procs = await self._spawn_pipeline(cmd.phone_command)
-            results = await self._wait_pipeline(procs, cancel_ev)
-            return SubmitOneshotResult(result=PhoneCommandResult(
-                command_id=cmd.command_id, steps=results,
-            ))
-        except asyncio.CancelledError:
-            return CommandError(command_id=cmd.command_id, error="cancelled")
-        except Exception as e:
-            return CommandError(command_id=cmd.command_id, error=str(e))
+            await self._drive(run, cancel_ev)
         finally:
-            self._cancel_events.pop(cmd.command_id, None)
+            self._cancel_events.pop(slug, None)
+            self._procs.pop(slug, None)
 
-    # ── Daemon execution ─────────────────────────────────────────────
+    async def stop(self, slug: str) -> None:
+        ev = self._cancel_events.get(slug)
+        if ev is not None:
+            ev.set()
 
-    async def _start_daemon(self, cmd: SubmitCommand) -> SubmitDaemonStarted:
-        procs = await self._spawn_pipeline(cmd.phone_command)
-        handle_id = str(uuid.uuid4())
-        daemon = _RunningDaemon(
-            handle_id=handle_id, command_id=cmd.command_id, procs=procs,
+    async def shutdown(self) -> None:
+        for ev in list(self._cancel_events.values()):
+            ev.set()
+        # Best-effort kill in case a run is mid-spawn and didn't observe the event.
+        for procs in list(self._procs.values()):
+            for p in procs:
+                try:
+                    p.kill()
+                except ProcessLookupError:
+                    pass
+
+    # ── Run driver ──────────────────────────────────────────────────
+
+    async def _drive(self, run: Run, cancel_ev: asyncio.Event) -> None:
+        slug = run.slug
+        pc = run.phone_command
+        run.emit(RunStateRunning(slug=slug, at=time.time()))
+
+        try:
+            procs = await self._spawn_pipeline(pc)
+        except Exception as e:
+            logger.exception("spawn failed", slug=slug)
+            run.emit(RunStateFailed(slug=slug, at=time.time(), error=str(e)))
+            return
+
+        self._procs[slug] = procs
+
+        for i, proc in enumerate(procs):
+            run.emit(RunStateStepStarted(
+                slug=slug, at=time.time(), step_index=i, pid=proc.pid or 0,
+            ))
+
+        is_daemon = pc.daemon
+        if is_daemon:
+            run.emit(RunStateDaemonStarted(slug=slug, at=time.time()))
+
+        # Reader tasks: one per captured fd, honoring StreamConfig.
+        reader_tasks: list[asyncio.Task] = []
+        for i, (proc, step) in enumerate(zip(procs, pc.steps, strict=False)):
+            if proc.stdout is not None:
+                reader_tasks.append(asyncio.create_task(
+                    self._read_fd(
+                        run, i, "stdout", proc.stdout, step.stdout_stream,
+                    ),
+                    name=f"reader[{slug}.{i}.stdout]",
+                ))
+            if proc.stderr is not None:
+                reader_tasks.append(asyncio.create_task(
+                    self._read_fd(
+                        run, i, "stderr", proc.stderr, step.stderr_stream,
+                    ),
+                    name=f"reader[{slug}.{i}.stderr]",
+                ))
+
+        # Wait task: emits step_exited as each proc finishes.
+        async def _wait_step(idx: int, p: asyncio.subprocess.Process) -> None:
+            exit_code = await p.wait()
+            run.emit(RunStateStepExited(
+                slug=slug, at=time.time(), step_index=idx, exit_code=exit_code,
+            ))
+
+        async def _wait_all() -> None:
+            await asyncio.gather(*[_wait_step(i, p) for i, p in enumerate(procs)])
+
+        wait_task = asyncio.create_task(_wait_all(), name=f"wait[{slug}]")
+        cancel_task = asyncio.create_task(cancel_ev.wait(), name=f"cancel[{slug}]")
+
+        done, _pending = await asyncio.wait(
+            [wait_task, cancel_task], return_when=asyncio.FIRST_COMPLETED,
         )
-        self._daemons[handle_id] = daemon
-        logger.info("daemon started", handle_id=handle_id, command_id=cmd.command_id)
-        return SubmitDaemonStarted(handle=PhoneCommandDaemonHandle(
-            command_id=cmd.command_id, handle_id=handle_id,
-        ))
 
-    # ── Pipeline helpers ─────────────────────────────────────────────
+        cancelled = cancel_task in done
 
-    async def _spawn_pipeline(self, pc: PhoneCommand) -> list[asyncio.subprocess.Process]:
+        if cancelled:
+            for p in procs:
+                try:
+                    p.kill()
+                except ProcessLookupError:
+                    pass
+        else:
+            cancel_task.cancel()
+
+        # Drain wait_task and reader_tasks regardless — kills cause proc.wait
+        # to return, which lets readers EOF.
+        try:
+            await wait_task
+        except asyncio.CancelledError:
+            pass
+        await asyncio.gather(*reader_tasks, return_exceptions=True)
+
+        if is_daemon:
+            run.emit(RunStateDaemonEnded(slug=slug, at=time.time()))
+
+        if cancelled:
+            run.emit(RunStateCancelled(slug=slug, at=time.time()))
+            return
+
+        nonzero = [p.returncode for p in procs if p.returncode not in (0, None)]
+        if nonzero:
+            run.emit(RunStateFailed(
+                slug=slug, at=time.time(),
+                error=f"non-zero exit: {nonzero}",
+            ))
+        else:
+            run.emit(RunStateCompleted(slug=slug, at=time.time()))
+
+    # ── Pipeline spawn ──────────────────────────────────────────────
+
+    async def _spawn_pipeline(
+        self, pc: PhoneCommand,
+    ) -> list[asyncio.subprocess.Process]:
         """Spawn all steps, wiring connections between them."""
         procs: list[asyncio.subprocess.Process] = []
         fds_to_close: list[int] = []
 
         for i, step in enumerate(pc.steps):
             stdin_arg: int | None = None
-
-            # Wire stdin from previous step's pipe write-end
             if i > 0 and i - 1 < len(pc.connections):
                 conn = pc.connections[i - 1]
                 if isinstance(conn, Pipe):
-                    stdin_arg = fds_to_close[-1]  # read-end of the pipe
+                    stdin_arg = fds_to_close[-1]
 
-            # Create OS pipe for this step's stdout if next step wants Pipe
             stdout_arg: int | None = None
             if i < len(pc.connections) and isinstance(pc.connections[i], Pipe):
                 read_fd, write_fd = os.pipe()
@@ -175,7 +200,6 @@ class LocalExecutor:
             procs.append(proc)
             logger.debug("spawned step", step=i, argv=step.argv, pid=proc.pid)
 
-            # Close our copy of fds that the child now owns
             if stdin_arg is not None:
                 os.close(stdin_arg)
                 fds_to_close.remove(stdin_arg)
@@ -184,78 +208,63 @@ class LocalExecutor:
 
         return procs
 
-    async def _wait_pipeline(
-        self,
-        procs: list[asyncio.subprocess.Process],
-        cancel_ev: asyncio.Event,
-    ) -> list[ProcessResult]:
-        """Wait for all processes in the pipeline to finish."""
-        results: list[ProcessResult] = []
+    # ── Per-fd readers ──────────────────────────────────────────────
 
-        async def wait_one(proc: asyncio.subprocess.Process) -> ProcessResult:
-            stdout_bytes, stderr_bytes = await proc.communicate()
-            return ProcessResult(
-                exit_code=proc.returncode or 0,
-                stdout=(stdout_bytes or b"").decode(errors="replace"),
-                stderr=(stderr_bytes or b"").decode(errors="replace"),
+    async def _read_fd(
+        self,
+        run: Run,
+        step_index: int,
+        fd_name: Literal["stdout", "stderr"],
+        reader: asyncio.StreamReader,
+        cfg: StreamConfig,
+    ) -> None:
+        # back_pressure: TODO honor by gating reads on subscriber queue depth.
+        # v0.2 always drains; per-subscriber drop accounting is in Run.emit.
+        try:
+            if cfg.mode == "lines":
+                await self._read_lines(run, step_index, fd_name, reader)
+            else:
+                await self._read_binary(run, step_index, fd_name, reader)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "reader crashed", slug=run.slug, step=step_index, fd=fd_name,
             )
 
-        wait_task = asyncio.gather(*[wait_one(p) for p in procs])
-        cancel_task = asyncio.create_task(cancel_ev.wait())
-
-        done, pending = await asyncio.wait(
-            [wait_task, cancel_task], return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        if cancel_task in done:
-            wait_task.cancel()
-            for p in procs:
-                try:
-                    p.kill()
-                except ProcessLookupError:
-                    pass
-            raise asyncio.CancelledError()
-
-        cancel_task.cancel()
-        results = wait_task.result()
-        return results
-
-    # ── Daemon helpers ───────────────────────────────────────────────
-
-    def _build_daemon_status(self, daemon: _RunningDaemon) -> DaemonStatusReport:
-        steps = []
-        for i, proc in enumerate(daemon.procs):
-            running = proc.returncode is None
-            steps.append(DaemonProcessStatus(
-                running=running,
-                exit_code=proc.returncode,
-                stdout_tail=daemon.stdout_tails[i],
-                stderr_tail=daemon.stderr_tails[i],
+    async def _read_lines(
+        self,
+        run: Run,
+        step_index: int,
+        fd_name: Literal["stdout", "stderr"],
+        reader: asyncio.StreamReader,
+    ) -> None:
+        while True:
+            line = await reader.readline()
+            if not line:
+                return
+            decoded = line.decode("utf-8", errors="replace")
+            # drop the trailing \n; preserve any \r in the content
+            if decoded.endswith("\n"):
+                decoded = decoded[:-1]
+            run.emit(RunOutputEvent(
+                slug=run.slug, at=time.time(), step_index=step_index,
+                fd=fd_name, lines=[decoded],
             ))
-        return DaemonStatusReport(status=DaemonStatus(
-            handle_id=daemon.handle_id,
-            steps=steps,
-            all_running=all(s.running for s in steps),
-        ))
 
-    async def _kill_daemon(self, daemon: _RunningDaemon) -> list[ProcessResult]:
-        results: list[ProcessResult] = []
-        for proc in daemon.procs:
-            try:
-                proc.terminate()
-            except ProcessLookupError:
-                pass
-        # Give processes a moment to exit, then force-kill
-        await asyncio.sleep(0.5)
-        for proc in daemon.procs:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-            stdout_bytes, stderr_bytes = await proc.communicate()
-            results.append(ProcessResult(
-                exit_code=proc.returncode or -1,
-                stdout=(stdout_bytes or b"").decode(errors="replace"),
-                stderr=(stderr_bytes or b"").decode(errors="replace"),
+    async def _read_binary(
+        self,
+        run: Run,
+        step_index: int,
+        fd_name: Literal["stdout", "stderr"],
+        reader: asyncio.StreamReader,
+    ) -> None:
+        while True:
+            chunk = await reader.read(_BINARY_CHUNK)
+            if not chunk:
+                return
+            b64 = base64.b64encode(chunk).decode("ascii")
+            run.emit(RunOutputEvent(
+                slug=run.slug, at=time.time(), step_index=step_index,
+                fd=fd_name, bytes=b64,
             ))
-        return results

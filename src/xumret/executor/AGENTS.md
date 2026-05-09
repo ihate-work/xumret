@@ -1,21 +1,33 @@
 # executor
 
-Runs commands on the phone via termux-api.
+Drives Runs forward by emitting events.
 
 ## models.py
 
-`PhoneCommand` defines a pipeline of processes (`ProcessStep`, each an `argv: list[str]`) connected by typed `Connection`s (`Pipe` for stdout->stdin, `TempFile` for file-based handoff). Extensible to NamedPipe, Socket, etc.
+`PhoneCommand` defines a pipeline of `ProcessStep`s connected by typed
+`Connection`s (`Pipe` for stdout->stdin, `TempFile` for file-based handoff).
 
-Two variants via `daemon` flag:
-- **One-shot** (`daemon=False`): blocks until exit, returns `PhoneCommandResult` (per-step exit code + stdout/stderr).
-- **Daemon** (`daemon=True`): returns `PhoneCommandDaemonHandle` immediately. Query with `query_daemon`, stop with `end_daemon`.
+Each `ProcessStep` carries `argv` plus `stdout_stream` and `stderr_stream`
+(`StreamConfig(mode="lines"|"binary", back_pressure=False)`).
 
-The `Executor` protocol lives in `xumret.protocol.executor`. `SingleMain`/`ServerMain` talk to it, never to a concrete implementation.
+`PhoneCommand.run_option: RunOption(slug, mutex_by_slug)` — caller-declared
+identity and dedup policy.
+
+`daemon` flag toggles lifecycle: oneshot ends on last step's exit;
+daemons emit `daemon_started` / `daemon_ended` and only terminate on stop.
+
+The `Executor` protocol lives in `xumret.protocol.executor`. Single mode
+talks to `LocalExecutor`; bridge work (deferred) will plug `RemoteExecutor`
+behind the same shape.
 
 ## local.py
 
-`LocalExecutor` — implements `Executor` by running subprocesses directly. Used in single mode.
+`LocalExecutor` — implements `Executor` by spawning subprocesses. Per-fd
+async reader tasks honor `StreamConfig.mode`; per-step `step_started` /
+`step_exited` events emitted in order; cancellation kills procs and emits
+`cancelled`.
 
-## agent.py
+## dummy_executor.py
 
-`ExecutorAgent` — phone-side WS agent. Wraps a `LocalExecutor` behind the `server_bridge` WS protocol. Used in server-executor mode.
+`DummyExecutor` — emits canned events without spawning processes. Used in
+`xumret single --dummy` and tests.

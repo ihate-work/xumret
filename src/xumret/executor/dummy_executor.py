@@ -1,37 +1,29 @@
-"""DummyExecutor — returns canned responses without spawning processes.
+"""DummyExecutor — emits canned events without spawning processes.
 
-Used for local development and tests where real subprocess execution
-is unnecessary or undesirable. Recognises common termux-api binary names
-in argv and returns plausible fake output. Unknown commands get a generic stub.
+Used for local development and tests where real subprocess execution is
+unnecessary or undesirable. Recognises common termux-api binary names in argv
+and emits plausible fake stdout. Unknown commands get a generic stub.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import uuid
+import time
 
 import ihate_work.o11y as o11y
 
-from xumret.executor.models import (
-    DaemonProcessStatus,
-    DaemonStatus,
-    PhoneCommandDaemonHandle,
-    PhoneCommandResult,
-    ProcessResult,
+from xumret.state.models import (
+    RunOutputEvent,
+    RunStateCancelled,
+    RunStateCompleted,
+    RunStateDaemonEnded,
+    RunStateDaemonStarted,
+    RunStateRunning,
+    RunStateStepExited,
+    RunStateStepStarted,
 )
-from xumret.server_bridge.models import (
-    CancelCommand,
-    CommandError,
-    DaemonEnded,
-    DaemonStatusReport,
-    EndDaemon,
-    QueryDaemon,
-    QueryStatus,
-    SubmitCommand,
-    SubmitDaemonStarted,
-    SubmitOneshotResult,
-)
+from xumret.state.run import Run
 
 logger, *_ = o11y.get_o11y(__name__)
 
@@ -140,90 +132,79 @@ _CANNED: dict[str, object] = {
     "termux-clipboard-set": None,
 }
 
-# Simulated latencies per binary (seconds)
 _LATENCIES: dict[str, float] = {
-    "termux-location": 0.8,
-    "termux-camera-photo": 1.2,
-    "termux-sms-list": 0.3,
-    "termux-call-log": 0.3,
-    "termux-contact-list": 0.2,
+    "termux-location": 0.05,
+    "termux-camera-photo": 0.05,
+    "termux-sms-list": 0.02,
+    "termux-call-log": 0.02,
+    "termux-contact-list": 0.02,
 }
-_DEFAULT_LATENCY = 0.05
+_DEFAULT_LATENCY = 0.005
 
 
 def _fake_stdout(binary: str, argv: list[str]) -> str:
-    """Produce canned stdout for a known binary, or a generic stub."""
     canned = _CANNED.get(binary)
     if canned is None and binary in _CANNED:
-        # Known command that produces no output (toast, vibrate, ...)
-        return ""
+        return ""  # known silent command
     if canned is not None:
         return (json.dumps(canned, indent=2) if not isinstance(canned, str) else canned) + "\n"
-    # Unknown binary — generic stub
     return json.dumps({"dummy": True, "argv": argv}) + "\n"
 
 
 class DummyExecutor:
-    """Implements Executor protocol with fake results. No real processes are spawned."""
+    """Implements `Executor` with fake events. No real processes are spawned."""
 
     def __init__(self) -> None:
-        self._daemons: dict[str, str] = {}  # handle_id -> command_id
-        self._cancelled: set[str] = set()  # command_ids
+        self._cancel_events: dict[str, asyncio.Event] = {}
+        self._fake_pid_seed = 90000
 
-    async def submit(
-        self, cmd: SubmitCommand
-    ) -> SubmitOneshotResult | SubmitDaemonStarted | CommandError:
-        pc = cmd.phone_command
-        if pc.daemon:
-            handle_id = str(uuid.uuid4())
-            self._daemons[handle_id] = cmd.command_id
-            logger.info("dummy daemon started", handle_id=handle_id, command_id=cmd.command_id)
-            return SubmitDaemonStarted(
-                handle=PhoneCommandDaemonHandle(
-                    command_id=cmd.command_id, handle_id=handle_id,
-                )
-            )
+    async def run(self, run: Run) -> None:
+        slug = run.slug
+        cancel_ev = asyncio.Event()
+        self._cancel_events[slug] = cancel_ev
+        try:
+            run.emit(RunStateRunning(slug=slug, at=time.time()))
+            for i, step in enumerate(run.phone_command.steps):
+                if cancel_ev.is_set():
+                    break
+                self._fake_pid_seed += 1
+                pid = self._fake_pid_seed
+                run.emit(RunStateStepStarted(
+                    slug=slug, at=time.time(), step_index=i, pid=pid,
+                ))
+                binary = step.argv[0] if step.argv else ""
+                await asyncio.sleep(_LATENCIES.get(binary, _DEFAULT_LATENCY))
+                stdout = _fake_stdout(binary, step.argv)
+                if stdout:
+                    lines = stdout.rstrip("\n").split("\n")
+                    run.emit(RunOutputEvent(
+                        slug=slug, at=time.time(), step_index=i,
+                        fd="stdout", lines=lines,
+                    ))
+                run.emit(RunStateStepExited(
+                    slug=slug, at=time.time(), step_index=i, exit_code=0,
+                ))
 
-        logger.debug("dummy oneshot", command_id=cmd.command_id, steps=len(pc.steps))
-        step_results: list[ProcessResult] = []
-        for step in pc.steps:
-            binary = step.argv[0] if step.argv else ""
-            await asyncio.sleep(_LATENCIES.get(binary, _DEFAULT_LATENCY))
-            step_results.append(ProcessResult(
-                exit_code=0, stdout=_fake_stdout(binary, step.argv), stderr="",
-            ))
+            if cancel_ev.is_set():
+                run.emit(RunStateCancelled(slug=slug, at=time.time()))
+                return
 
-        return SubmitOneshotResult(
-            result=PhoneCommandResult(
-                command_id=cmd.command_id, steps=step_results,
-            )
-        )
+            if run.phone_command.daemon:
+                run.emit(RunStateDaemonStarted(slug=slug, at=time.time()))
+                await cancel_ev.wait()
+                run.emit(RunStateDaemonEnded(slug=slug, at=time.time()))
+                run.emit(RunStateCancelled(slug=slug, at=time.time()))
+                return
 
-    async def cancel(self, cmd: CancelCommand) -> None:
-        self._cancelled.add(cmd.command_id)
+            run.emit(RunStateCompleted(slug=slug, at=time.time()))
+        finally:
+            self._cancel_events.pop(slug, None)
 
-    async def query_status(self, cmd: QueryStatus) -> DaemonStatusReport | CommandError:
-        for handle_id, command_id in self._daemons.items():
-            if command_id == cmd.command_id:
-                return self._make_status(handle_id)
-        return CommandError(command_id=cmd.command_id, error="not_found")
+    async def stop(self, slug: str) -> None:
+        ev = self._cancel_events.get(slug)
+        if ev is not None:
+            ev.set()
 
-    async def query_daemon(self, cmd: QueryDaemon) -> DaemonStatusReport:
-        if cmd.handle_id in self._daemons:
-            return self._make_status(cmd.handle_id)
-        return DaemonStatusReport(
-            status=DaemonStatus(handle_id=cmd.handle_id, steps=[], all_running=False)
-        )
-
-    async def end_daemon(self, cmd: EndDaemon) -> DaemonEnded:
-        self._daemons.pop(cmd.handle_id, None)
-        return DaemonEnded(handle_id=cmd.handle_id, final_steps=[])
-
-    def _make_status(self, handle_id: str) -> DaemonStatusReport:
-        return DaemonStatusReport(
-            status=DaemonStatus(
-                handle_id=handle_id,
-                steps=[DaemonProcessStatus(running=True)],
-                all_running=True,
-            )
-        )
+    async def shutdown(self) -> None:
+        for ev in list(self._cancel_events.values()):
+            ev.set()

@@ -1,8 +1,8 @@
 import { Route, Switch, Redirect } from 'wouter';
 import { DevicesPage } from './pages/devices/index';
 import { DevicePage } from './pages/devices/:deviceId/index';
-import { DeviceCommandsPage } from './pages/devices/:deviceId/commands/index';
-import { DeviceCommandPage } from './pages/devices/:deviceId/commands/:commandId/index';
+import { DeviceRunsPage } from './pages/devices/:deviceId/runs/index';
+import { DeviceRunPage } from './pages/devices/:deviceId/runs/:slug/index';
 
 export function App() {
   return (
@@ -10,8 +10,8 @@ export function App() {
       <Switch>
         <Route path="/devices" component={DevicesPage} />
         <Route path="/devices/:deviceId" component={DevicePage} />
-        <Route path="/devices/:deviceId/commands" component={DeviceCommandsPage} />
-        <Route path="/devices/:deviceId/commands/:commandId" component={DeviceCommandPage} />
+        <Route path="/devices/:deviceId/runs" component={DeviceRunsPage} />
+        <Route path="/devices/:deviceId/runs/:slug" component={DeviceRunPage} />
         <Route><Redirect to="/devices" /></Route>
       </Switch>
     </div>

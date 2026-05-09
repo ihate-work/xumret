@@ -25,6 +25,9 @@ def single(host: str, port: int, dummy: bool) -> None:
     from xumret.single import SingleMain
     from xumret.state.phone import PhoneState
 
+    from xumret.protocol.executor import Executor
+
+    executor: Executor
     if dummy:
         from xumret.executor.dummy_executor import DummyExecutor
 
