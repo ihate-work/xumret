@@ -1,5 +1,6 @@
 # dev
 httpx>=0.27.0
 pytest>=8.0
+pytest-cov>=6.0
 pytest-watcher>=0.4
 mypy>=1.8.0

@@ -6,7 +6,7 @@ default: runtime-deps
 ### SECTION dev scripts
 ###
 
-PY_CODE_ROOTS = src/ tests/
+PY_CODE_ROOTS = src/
 
 format:
 	npx dprint fmt .
@@ -16,6 +16,9 @@ typecheck: deps
 
 test: deps
 	venv/bin/pytest $(PY_CODE_ROOTS)
+
+test-cov: deps
+	venv/bin/pytest $(PY_CODE_ROOTS) --cov --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml
 
 test-watch: deps
 	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
@@ -46,7 +49,7 @@ REQUIREMENTS_DEV = -r requirements-dev.txt -r requirements.txt
 # first index that has a package, and the Termux index ships android-only wheels.
 EXTRA_INDEX := $(if $(filter Android,$(shell uname -o 2>/dev/null)),--extra-index-url https://termux-user-repository.github.io/pypi)
 
-UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install '--only-binary=:all:' $(EXTRA_INDEX)
+UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install '--only-binary=:all:' --no-binary=ihate-work --exclude-newer-package 'ihate-work=2030-01-01' $(EXTRA_INDEX)
 
 # Default developer-facing deps: install dev + runtime deps
 deps: Makefile venv/.dev_deps_installed
