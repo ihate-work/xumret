@@ -5,6 +5,9 @@ description = "Remote control for termux and termux-api"
 readme = "README.md"
 requires-python = ">=3.11"
 
+[tool.uv]
+exclude-newer = "8d"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

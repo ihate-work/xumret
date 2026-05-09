@@ -4,3 +4,5 @@ pytest>=8.0
 pytest-cov>=6.0
 pytest-watcher>=0.4
 mypy>=1.8.0
+# pur: pip-update-requirements (used by `make upgrade-deps`)
+pur==7.4.0

@@ -42,3 +42,4 @@ Inherited from vibra conventions:
 - **Tests**: Named `TESTEE_test.py`. Run with `make test`.
 - **dotenv**: Always `load_dotenv(override=False)`.
 - **Formatting**: ruff (line-length 100, select E/F/I/N/W/UP).
+- **Supply-chain cooldown**: Two layers — `[tool.uv] exclude-newer = "8d"` in `pyproject.toml` caps `make deps`, and `pur --cooldown-days=9` in `make upgrade-deps` caps upgrades. Both are required so we never install a freshly published (potentially typosquatted or hijacked) version.

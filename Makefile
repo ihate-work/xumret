@@ -68,6 +68,14 @@ venv/.dev_deps_installed: venv/.venv_created requirements.txt requirements-dev.t
 	@echo "dev deps installed"
 	@touch $@
 
+# comma separated packages to skip during upgrade
+FREEZE_PY_REQ =
+
+upgrade-deps:
+	for f in requirements.txt requirements-dev.txt; do \
+		venv/bin/pur -r $$f --force --cooldown-days=9 --skip=$(FREEZE_PY_REQ); \
+	done
+
 venv: venv/.venv_created
 
 venv/.venv_created: Makefile
