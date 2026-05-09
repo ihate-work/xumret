@@ -18,7 +18,7 @@ test: deps
 	venv/bin/pytest $(PY_CODE_ROOTS)
 
 test-cov: deps
-	venv/bin/pytest $(PY_CODE_ROOTS) --cov --cov-report=term-missing --cov-report=html:htmlcov
+	venv/bin/pytest $(PY_CODE_ROOTS) --cov --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml
 
 test-watch: deps
 	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
