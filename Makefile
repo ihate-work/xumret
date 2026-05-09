@@ -57,12 +57,12 @@ deps: Makefile venv/.dev_deps_installed
 # Runtime-only deps (for running server/client in minimal env)
 runtime-deps: Makefile venv/.deps_installed
 
-venv/.deps_installed: venv/.venv_created requirements.txt
+venv/.deps_installed: venv/.venv_created requirements.txt pyproject.toml
 	$(UV_PIP_INSTALL) $(REQUIREMENTS_RUNTIME)
 	@echo "runtime deps installed"
 	@touch $@
 
-venv/.dev_deps_installed: venv/.venv_created requirements.txt requirements-dev.txt package.json package-lock.json
+venv/.dev_deps_installed: venv/.venv_created requirements.txt requirements-dev.txt pyproject.toml package.json package-lock.json
 	$(UV_PIP_INSTALL) $(REQUIREMENTS_DEV)
 	npm ci
 	@echo "dev deps installed"
