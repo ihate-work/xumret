@@ -1,10 +1,10 @@
 # Task: v0.2.0 — Runs (subprocess management refresh)
 
 Implementation checklist for the v0.2.0 subprocess-management work.
-Design source of truth: [`runs-design.md`](runs-design.md).
+Design source of truth: [`design-process-management.md`](design-process-management.md).
 Roadmap entry: [`roadmap.md`](roadmap.md).
 
-## 0. Decisions (resolved — see [`runs-design.md`](runs-design.md))
+## 0. Decisions (resolved — see [`design-process-management.md`](design-process-management.md))
 
 - [x] **D1.** Submit endpoint = single `POST /api/runs`; slug in body.
 - [x] **D2.** Output tail cap = **128 KiB per process** (per pipeline step),
@@ -83,7 +83,7 @@ only at this stage; remote bridge stays out of scope.
 
 ### B.2 Submit semantics (`PhoneState.submit`)
 
-Implement the decision matrix from `runs-design.md`:
+Implement the decision matrix from `design-process-management.md`:
 
 - [ ] `slug=None` → auto-gen UUID4 slug; create fresh run.
 - [ ] `slug=X, mutex_by_slug=False`, live `X` exists → return existing run.
@@ -109,7 +109,7 @@ Implement the decision matrix from `runs-design.md`:
 ## C. HTTP API migration
 
 Rename to `/api/runs/...` and add the new endpoints. Verbs limited to GET /
-PUT / POST per `runs-design.md`; remove DELETE.
+PUT / POST per `design-process-management.md`; remove DELETE.
 
 ### C.1 Routes (`src/xumret/server/api/routes.py`)
 
@@ -172,7 +172,7 @@ bridge work begins.
 - All code paths covered by tests above pass `make test`.
 - `make webui-dev` smoke flow works against a real phone (one-shot +
   daemon both observable end-to-end).
-- `runs-design.md` open decisions are pinned (no `Lean: ...` markers
+- `design-process-management.md` open decisions are pinned (no `Lean: ...` markers
   left).
 - `journals/` entry written summarising what shipped and any deviations
   from the design.
@@ -183,4 +183,4 @@ bridge work begins.
 - Disconnect-recovery policy on reconnect.
 - Auto-reap of fire-and-forget runs.
 - TTL-based zombie GC.
-- `phone-command-taxonomy.md` (separate roadmap item).
+- `design-command-compose.md` (separate roadmap item).

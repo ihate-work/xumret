@@ -2,8 +2,8 @@
 
 Prefix: `/api/ui_v0/`
 
-See [`runs-design.md`](runs-design.md) for the semantics behind `runs`,
-slugs, and reap. This file is the route inventory; `runs-design.md` is the
+See [`design-process-management.md`](design-process-management.md) for the semantics behind `runs`,
+slugs, and reap. This file is the route inventory; `design-process-management.md` is the
 source of truth for behaviour.
 
 ## Devices
@@ -22,7 +22,7 @@ GET    /api/ui_v0/devices/:device_id/state
 ## Runs
 
 A run is a `PhoneCommand` being (or having been) executed. The `slug` is
-the run identifier, scoped to the device. See `runs-design.md`.
+the run identifier, scoped to the device. See `design-process-management.md`.
 
 ```
 POST   /api/ui_v0/devices/:device_id/runs                  # submit

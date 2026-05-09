@@ -15,17 +15,17 @@
 
 ### Design
 
-- [runs-design.md](runs-design.md) — Run abstraction, slug-keyed lifecycle,
+- [design-process-management.md](design-process-management.md) — Run abstraction, slug-keyed lifecycle,
   reap semantics, HTTP API surface. Source of truth for v0.2 subprocess
   management work.
 
 ### Tasks
 
 - [x] study other projects (`xumret-alt` comparison; ideas folded into
-  [runs-design.md](runs-design.md))
+  [design-process-management.md](design-process-management.md))
 - [~] refine subprocess management : internal & API —
   full checklist in [task-v0.2.0-runs.md](task-v0.2.0-runs.md)
-    - [x] design — [runs-design.md](runs-design.md)
+    - [x] design — [design-process-management.md](design-process-management.md)
     - [x] open decisions resolved (submit endpoint, output cap, event
       delivery, late-subscriber semantics)
     - [ ] A. `Run` as live handle (executor refactor + PhoneState rewire +
