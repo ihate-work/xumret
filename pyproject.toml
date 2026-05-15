@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 
 [tool.uv]
-exclude-newer = "8d"
+exclude-newer = "7d"
 
 [build-system]
 requires = ["hatchling"]
