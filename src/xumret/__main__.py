@@ -1,7 +1,9 @@
+import logging
+
 import click
 import ihate_work.o11y as o11y
+import uvicorn
 from dotenv import load_dotenv
-import logging
 
 load_dotenv(override=False)
 o11y.setup_otel()
@@ -16,24 +18,22 @@ def cli():
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=8080, type=int, help="Port to listen on")
-@click.option("--dummy", is_flag=True, help="Use DummyExecutor (fake responses, no phone needed)")
+@click.option(
+    "--dummy", is_flag=True, help="Use DummyExecutor (fake responses, no phone needed)"
+)
 def single(host: str, port: int, dummy: bool) -> None:
     """Run xumret in single mode (everything on phone)."""
-    import uvicorn
 
     from xumret.server.api.app import create_app
     from xumret.single import SingleMain
     from xumret.state.phone import PhoneState
 
-    from xumret.protocol.executor import Executor
-
-    executor: Executor
     if dummy:
         from xumret.executor.dummy_executor import DummyExecutor
 
         executor = DummyExecutor()
     else:
-        from xumret.executor.local import LocalExecutor
+        from xumret.executor.local_executor import LocalExecutor
 
         executor = LocalExecutor()
 

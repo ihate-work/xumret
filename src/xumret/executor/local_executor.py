@@ -91,9 +91,14 @@ class LocalExecutor:
         self._procs[slug] = procs
 
         for i, proc in enumerate(procs):
-            run.emit(RunStateStepStarted(
-                slug=slug, at=time.time(), step_index=i, pid=proc.pid or 0,
-            ))
+            run.emit(
+                RunStateStepStarted(
+                    slug=slug,
+                    at=time.time(),
+                    step_index=i,
+                    pid=proc.pid or 0,
+                )
+            )
 
         is_daemon = pc.daemon
         if is_daemon:
@@ -103,26 +108,43 @@ class LocalExecutor:
         reader_tasks: list[asyncio.Task] = []
         for i, (proc, step) in enumerate(zip(procs, pc.steps, strict=False)):
             if proc.stdout is not None:
-                reader_tasks.append(asyncio.create_task(
-                    self._read_fd(
-                        run, i, "stdout", proc.stdout, step.stdout_stream,
-                    ),
-                    name=f"reader[{slug}.{i}.stdout]",
-                ))
+                reader_tasks.append(
+                    asyncio.create_task(
+                        self._read_fd(
+                            run,
+                            i,
+                            "stdout",
+                            proc.stdout,
+                            step.stdout_stream,
+                        ),
+                        name=f"reader[{slug}.{i}.stdout]",
+                    )
+                )
             if proc.stderr is not None:
-                reader_tasks.append(asyncio.create_task(
-                    self._read_fd(
-                        run, i, "stderr", proc.stderr, step.stderr_stream,
-                    ),
-                    name=f"reader[{slug}.{i}.stderr]",
-                ))
+                reader_tasks.append(
+                    asyncio.create_task(
+                        self._read_fd(
+                            run,
+                            i,
+                            "stderr",
+                            proc.stderr,
+                            step.stderr_stream,
+                        ),
+                        name=f"reader[{slug}.{i}.stderr]",
+                    )
+                )
 
         # Wait task: emits step_exited as each proc finishes.
         async def _wait_step(idx: int, p: asyncio.subprocess.Process) -> None:
             exit_code = await p.wait()
-            run.emit(RunStateStepExited(
-                slug=slug, at=time.time(), step_index=idx, exit_code=exit_code,
-            ))
+            run.emit(
+                RunStateStepExited(
+                    slug=slug,
+                    at=time.time(),
+                    step_index=idx,
+                    exit_code=exit_code,
+                )
+            )
 
         async def _wait_all() -> None:
             await asyncio.gather(*[_wait_step(i, p) for i, p in enumerate(procs)])
@@ -131,7 +153,8 @@ class LocalExecutor:
         cancel_task = asyncio.create_task(cancel_ev.wait(), name=f"cancel[{slug}]")
 
         done, _pending = await asyncio.wait(
-            [wait_task, cancel_task], return_when=asyncio.FIRST_COMPLETED,
+            [wait_task, cancel_task],
+            return_when=asyncio.FIRST_COMPLETED,
         )
 
         cancelled = cancel_task in done
@@ -162,17 +185,21 @@ class LocalExecutor:
 
         nonzero = [p.returncode for p in procs if p.returncode not in (0, None)]
         if nonzero:
-            run.emit(RunStateFailed(
-                slug=slug, at=time.time(),
-                error=f"non-zero exit: {nonzero}",
-            ))
+            run.emit(
+                RunStateFailed(
+                    slug=slug,
+                    at=time.time(),
+                    error=f"non-zero exit: {nonzero}",
+                )
+            )
         else:
             run.emit(RunStateCompleted(slug=slug, at=time.time()))
 
     # ── Pipeline spawn ──────────────────────────────────────────────
 
     async def _spawn_pipeline(
-        self, pc: PhoneCommand,
+        self,
+        pc: PhoneCommand,
     ) -> list[asyncio.subprocess.Process]:
         """Spawn all steps, wiring connections between them."""
         procs: list[asyncio.subprocess.Process] = []
@@ -194,7 +221,9 @@ class LocalExecutor:
             proc = await asyncio.create_subprocess_exec(
                 *step.argv,
                 stdin=stdin_arg,
-                stdout=stdout_arg if stdout_arg is not None else asyncio.subprocess.PIPE,
+                stdout=stdout_arg
+                if stdout_arg is not None
+                else asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             procs.append(proc)
@@ -229,7 +258,10 @@ class LocalExecutor:
             raise
         except Exception:
             logger.exception(
-                "reader crashed", slug=run.slug, step=step_index, fd=fd_name,
+                "reader crashed",
+                slug=run.slug,
+                step=step_index,
+                fd=fd_name,
             )
 
     async def _read_lines(
@@ -247,10 +279,15 @@ class LocalExecutor:
             # drop the trailing \n; preserve any \r in the content
             if decoded.endswith("\n"):
                 decoded = decoded[:-1]
-            run.emit(RunOutputEvent(
-                slug=run.slug, at=time.time(), step_index=step_index,
-                fd=fd_name, lines=[decoded],
-            ))
+            run.emit(
+                RunOutputEvent(
+                    slug=run.slug,
+                    at=time.time(),
+                    step_index=step_index,
+                    fd=fd_name,
+                    lines=[decoded],
+                )
+            )
 
     async def _read_binary(
         self,
@@ -264,7 +301,12 @@ class LocalExecutor:
             if not chunk:
                 return
             b64 = base64.b64encode(chunk).decode("ascii")
-            run.emit(RunOutputEvent(
-                slug=run.slug, at=time.time(), step_index=step_index,
-                fd=fd_name, bytes=b64,
-            ))
+            run.emit(
+                RunOutputEvent(
+                    slug=run.slug,
+                    at=time.time(),
+                    step_index=step_index,
+                    fd=fd_name,
+                    bytes=b64,
+                )
+            )

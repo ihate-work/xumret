@@ -209,7 +209,7 @@ keep up or reconnect via fetch-`/state`-then-SSE).
 
 ### Cost
 
-~300-500 LoC across `state/`, `executor/local.py`, `single.py`, `server/api/`,
+~300-500 LoC across `state/`, `executor/local_executor.py`, `single.py`, `server/api/`,
 plus tests. UI changes (rendering per-step progress) are incremental on top.
 
 ## Workstream B — slug as the unified process key
@@ -416,5 +416,5 @@ abstractions. Fold it into bridge work when that lands; it's ~30 LoC.
 - Source comparison: `xumret-alt/xumret/src/xumret/executor.py:32` (StateEmitter
   protocol — applied per-executor in alt; per-command here).
 - Current code touched: `src/xumret/state/models.py`, `state/phone.py`,
-  `executor/local.py`, `executor/models.py`, `server/api/events.py`,
+  `executor/local_executor.py`, `executor/models.py`, `server/api/events.py`,
   `single.py`.

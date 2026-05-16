@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 
-from xumret.executor.local import LocalExecutor
+from xumret.executor.local_executor import LocalExecutor
 from xumret.executor.models import (
     PhoneCommand,
     Pipe,

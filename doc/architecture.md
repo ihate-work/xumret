@@ -112,7 +112,7 @@ GET    /api/events             SSE stream of real-time updates
 
 ## Implementation order
 
-1. **Single mode first**: `api/`, `state/`, `executor/local.py`, `executor/models.py`, `server_bridge/models.py`, `executor/protocol.py`
+1. **Single mode first**: `api/`, `state/`, `executor/local_executor.py`, `executor/models.py`, `server_bridge/models.py`, `executor/protocol.py`
 2. **Server-executor mode**: `server_bridge/ws.py`, `executor/agent.py`, `RemoteExecutor`
 3. **WebUI**: build out `xumret-controller` against the HTTP API
 
