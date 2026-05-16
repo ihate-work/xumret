@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from xumret.executor.models import PhoneCommand, ProcessStep
+from xumret.executor.models import CommandStep, PhoneCommand
 from xumret.state.models import (
     RunOutputEvent,
     RunStateCancelled,
@@ -21,8 +21,7 @@ from xumret.state.run import OUTPUT_TAIL_CAP, Run
 def _pc(steps: int = 1) -> PhoneCommand:
     return PhoneCommand(
         name="t",
-        steps=[ProcessStep(argv=["echo", "hi"]) for _ in range(steps)],
-        connections=[],
+        steps=[CommandStep(argv=["echo", "hi"]) for _ in range(steps)],
     )
 
 
@@ -115,17 +114,6 @@ def test_tail_caps_at_128k():
     assert len(tail) == OUTPUT_TAIL_CAP
 
 
-def test_dropped_counters_accumulate():
-    run = Run(slug="s", phone_command=_pc())
-    run.emit(RunOutputEvent(
-        slug="s", at=_now(), step_index=0, fd="stdout", dropped_lines=3,
-    ))
-    run.emit(RunOutputEvent(
-        slug="s", at=_now(), step_index=0, fd="stdout", dropped_lines=4,
-    ))
-    assert run.record.steps[0].stdout_dropped == 7
-
-
 # --- subscriptions ---
 
 
@@ -161,26 +149,26 @@ def test_unsubscribe_stops_delivery():
     asyncio.run(go())
 
 
-def test_listener_called_synchronously():
-    run = Run(slug="s", phone_command=_pc())
+def test_on_event_called_synchronously():
     seen: list[str] = []
-    run.add_listener(lambda ev: seen.append(ev.type))
+    run = Run(
+        slug="s",
+        phone_command=_pc(),
+        on_event=lambda ev: seen.append(ev.type),
+    )
     run.emit(RunStateCreated(slug="s", at=_now()))
     run.emit(RunStateRunning(slug="s", at=_now()))
     assert seen == ["created", "running"]
 
 
-def test_listener_exception_does_not_break_emit():
-    run = Run(slug="s", phone_command=_pc())
-
+def test_on_event_exception_does_not_break_subscribers():
     def boom(ev):
-        raise RuntimeError("listener failed")
+        raise RuntimeError("on_event failed")
 
-    run.add_listener(boom)
-    seen: list[str] = []
-    run.add_listener(lambda ev: seen.append(ev.type))
+    run = Run(slug="s", phone_command=_pc(), on_event=boom)
+    q = run.subscribe()
     run.emit(RunStateRunning(slug="s", at=_now()))
-    assert seen == ["running"]
+    assert not q.empty()
 
 
 def test_record_includes_transitions():

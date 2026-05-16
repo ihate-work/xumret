@@ -85,8 +85,7 @@ class PhoneState:
         else:
             slug = uuid.uuid4().hex
 
-        run = Run(slug=slug, phone_command=phone_command)
-        run.add_listener(self._broadcast)
+        run = Run(slug=slug, phone_command=phone_command, on_event=self._broadcast)
         self._runs[slug] = run
         run.emit(RunStateCreated(slug=slug, at=time.time()))
         return run
@@ -97,7 +96,6 @@ class PhoneState:
             raise UnknownSlug(slug)
         if run.is_live:
             raise StillLive(slug)
-        run.remove_listener(self._broadcast)
         del self._runs[slug]
 
     # --- subscriptions (phone-wide fan-out) ---

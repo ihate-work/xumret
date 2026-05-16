@@ -4,12 +4,14 @@ import asyncio
 import json
 
 from xumret.executor.dummy_executor import DummyExecutor
-from xumret.executor.models import PhoneCommand, ProcessStep
+from xumret.executor.models import (
+    CommandStep,
+    PhoneCommand,
+    StreamConfig,
+)
 from xumret.state.models import (
     RunOutputEvent,
-    RunStateCancelled,
     RunStateCompleted,
-    RunStateDaemonStarted,
     RunStateStepExited,
     RunStateStepStarted,
     RunStatus,
@@ -17,13 +19,17 @@ from xumret.state.models import (
 from xumret.state.run import Run
 
 
-def _run(*, daemon: bool = False, argv: list[str] | None = None,
-         steps: int = 1) -> Run:
+def _captured(argv: list[str]) -> CommandStep:
+    return CommandStep(argv=argv, stdout_stream=StreamConfig(capture=True))
+
+
+def _run(*, argv: list[str] | None = None, steps: int = 1, capture: bool = True) -> Run:
     if argv is not None:
-        step_list = [ProcessStep(argv=argv)]
+        step_list = [_captured(argv) if capture else CommandStep(argv=argv)]
     else:
-        step_list = [ProcessStep(argv=["echo", "hi"]) for _ in range(steps)]
-    pc = PhoneCommand(name="t", steps=step_list, connections=[], daemon=daemon)
+        make = _captured if capture else (lambda a: CommandStep(argv=a))
+        step_list = [make(["echo", "hi"]) for _ in range(steps)]
+    pc = PhoneCommand(name="t", steps=step_list)
     return Run(slug="s", phone_command=pc)
 
 
@@ -34,7 +40,7 @@ def _types(run: Run) -> list[str]:
 def test_oneshot_emits_running_through_completed() -> None:
     async def go() -> None:
         ex = DummyExecutor()
-        run = _run(steps=2)
+        run = _run(steps=2, capture=False)
         await ex.run(run)
         assert run.status == RunStatus.completed
         types = _types(run)
@@ -77,18 +83,13 @@ def test_unknown_binary_returns_stub() -> None:
     asyncio.run(go())
 
 
-def test_daemon_emits_started_then_blocks_until_stop() -> None:
+def test_capture_disabled_means_no_output_event() -> None:
     async def go() -> None:
         ex = DummyExecutor()
-        run = _run(daemon=True)
-        task = asyncio.create_task(ex.run(run))
-        # Give it time to spawn
-        await asyncio.sleep(0.05)
-        assert any(isinstance(t, RunStateDaemonStarted) for t in run.record.transitions)
-        assert run.is_live
-        await ex.stop("s")
-        await asyncio.wait_for(task, timeout=1.0)
-        assert run.status == RunStatus.cancelled
+        run = _run(argv=["termux-battery-status"], capture=False)
+        await ex.run(run)
+        assert run.record.steps[0].stdout_tail == ""
+        assert run.status == RunStatus.completed
     asyncio.run(go())
 
 
@@ -101,12 +102,10 @@ def test_subscriber_sees_step_events_in_order() -> None:
         seen: list[type] = []
         while not q.empty():
             seen.append(type(q.get_nowait()))
-        # Order: running, step_started, output, step_exited, completed
         assert RunStateStepStarted in seen
         assert RunOutputEvent in seen
         assert RunStateStepExited in seen
         assert RunStateCompleted in seen
-        # step_started must precede step_exited
         ss = seen.index(RunStateStepStarted)
         se = seen.index(RunStateStepExited)
         assert ss < se
@@ -117,18 +116,4 @@ def test_stop_unknown_slug_is_noop() -> None:
     async def go() -> None:
         ex = DummyExecutor()
         await ex.stop("nope")
-    asyncio.run(go())
-
-
-def test_shutdown_cancels_inflight_daemons() -> None:
-    async def go() -> None:
-        ex = DummyExecutor()
-        run = _run(daemon=True)
-        task = asyncio.create_task(ex.run(run))
-        await asyncio.sleep(0.05)
-        await ex.shutdown()
-        await asyncio.wait_for(task, timeout=1.0)
-        assert run.status == RunStatus.cancelled
-        # cancelled is a transition event
-        assert any(isinstance(t, RunStateCancelled) for t in run.record.transitions)
     asyncio.run(go())

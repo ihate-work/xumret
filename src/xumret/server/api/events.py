@@ -48,7 +48,9 @@ async def event_stream(
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                category = "run_output" if isinstance(event, RunOutputEvent) else "run_state"
+                category = (
+                    "run_output" if isinstance(event, RunOutputEvent) else "run_state"
+                )
                 payload = json.dumps(event.model_dump(mode="json"))
                 yield f"event: {category}\ndata: {payload}\n\n"
         finally:

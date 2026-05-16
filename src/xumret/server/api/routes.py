@@ -37,7 +37,7 @@ async def submit_run(
     logger.info(
         "submit",
         name=pc.name,
-        daemon=pc.daemon,
+        timeout=pc.run_option.timeout,
         slug=pc.run_option.slug,
         mutex_by_slug=pc.run_option.mutex_by_slug,
     )

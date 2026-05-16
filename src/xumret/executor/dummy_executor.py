@@ -17,8 +17,6 @@ from xumret.state.models import (
     RunOutputEvent,
     RunStateCancelled,
     RunStateCompleted,
-    RunStateDaemonEnded,
-    RunStateDaemonStarted,
     RunStateRunning,
     RunStateStepExited,
     RunStateStepStarted,
@@ -175,7 +173,7 @@ class DummyExecutor:
                 binary = step.argv[0] if step.argv else ""
                 await asyncio.sleep(_LATENCIES.get(binary, _DEFAULT_LATENCY))
                 stdout = _fake_stdout(binary, step.argv)
-                if stdout:
+                if stdout and step.stdout_stream.capture:
                     lines = stdout.rstrip("\n").split("\n")
                     run.emit(RunOutputEvent(
                         slug=slug, at=time.time(), step_index=i,
@@ -186,13 +184,6 @@ class DummyExecutor:
                 ))
 
             if cancel_ev.is_set():
-                run.emit(RunStateCancelled(slug=slug, at=time.time()))
-                return
-
-            if run.phone_command.daemon:
-                run.emit(RunStateDaemonStarted(slug=slug, at=time.time()))
-                await cancel_ev.wait()
-                run.emit(RunStateDaemonEnded(slug=slug, at=time.time()))
                 run.emit(RunStateCancelled(slug=slug, at=time.time()))
                 return
 

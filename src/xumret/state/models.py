@@ -4,7 +4,7 @@ A `Run` is observed via two event categories:
 
 - `RunStateEvent` — discriminated union of lifecycle transitions
   (created, step_started, step_exited, running, completed, failed,
-  cancelled, daemon_started, daemon_status, daemon_ended).
+  cancelled, timed_out).
 - `RunOutputEvent` — incremental stdout/stderr for one step's fd.
 
 The materialized snapshot of a Run is `RunRecord` (status + per-step
@@ -30,10 +30,16 @@ class RunStatus(str, Enum):
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+    timed_out = "timed_out"
 
 
 TERMINAL_STATUSES: frozenset[RunStatus] = frozenset(
-    {RunStatus.completed, RunStatus.failed, RunStatus.cancelled}
+    {
+        RunStatus.completed,
+        RunStatus.failed,
+        RunStatus.cancelled,
+        RunStatus.timed_out,
+    }
 )
 
 
@@ -78,18 +84,8 @@ class RunStateCancelled(_RunStateBase):
     type: Literal["cancelled"] = "cancelled"
 
 
-class RunStateDaemonStarted(_RunStateBase):
-    type: Literal["daemon_started"] = "daemon_started"
-
-
-class RunStateDaemonStatus(_RunStateBase):
-    type: Literal["daemon_status"] = "daemon_status"
-    all_running: bool
-    step_running: list[bool]
-
-
-class RunStateDaemonEnded(_RunStateBase):
-    type: Literal["daemon_ended"] = "daemon_ended"
+class RunStateTimedOut(_RunStateBase):
+    type: Literal["timed_out"] = "timed_out"
 
 
 RunStateEvent = (
@@ -100,9 +96,7 @@ RunStateEvent = (
     | RunStateCompleted
     | RunStateFailed
     | RunStateCancelled
-    | RunStateDaemonStarted
-    | RunStateDaemonStatus
-    | RunStateDaemonEnded
+    | RunStateTimedOut
 )
 
 
@@ -119,9 +113,6 @@ class RunOutputEvent(BaseModel):
     lines: list[str] | None = None
     # Binary mode: base64-encoded bytes
     bytes: str | None = None
-    # Drop deltas since the previous event for this fd
-    dropped_lines: int | None = None
-    dropped_bytes: int | None = None
 
 
 RunEvent = RunStateEvent | RunOutputEvent
@@ -136,8 +127,6 @@ class StepState(BaseModel):
     # Bounded tail (lines mode: decoded text; binary mode: not stored — see Run).
     stdout_tail: str = ""
     stderr_tail: str = ""
-    stdout_dropped: int = 0
-    stderr_dropped: int = 0
 
 
 class RunRecord(BaseModel):
@@ -149,7 +138,5 @@ class RunRecord(BaseModel):
     created_at: float
     updated_at: float
     error: str | None = None
-    daemon_started: bool = False
-    daemon_ended: bool = False
     steps: list[StepState]
     transitions: list[RunStateEvent] = []

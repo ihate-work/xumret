@@ -5,6 +5,7 @@ import time
 from fastapi.testclient import TestClient
 
 from xumret.executor.dummy_executor import DummyExecutor
+from xumret.executor.models import CommandStep, PhoneCommand, RunOption
 from xumret.server.api.app import create_app
 from xumret.single import SingleMain
 from xumret.state.models import RunStateCompleted
@@ -22,7 +23,6 @@ def _submit(
     client: TestClient,
     *,
     name: str = "test",
-    daemon: bool = False,
     slug: str | None = None,
     mutex_by_slug: bool = False,
     argv: list[str] | None = None,
@@ -30,12 +30,22 @@ def _submit(
     pc = {
         "name": name,
         "steps": [{"argv": argv or ["termux-toast", "hi"]}],
-        "connections": [],
-        "daemon": daemon,
         "run_option": {"slug": slug, "mutex_by_slug": mutex_by_slug},
     }
     resp = client.post("/api/runs", json={"phone_command": pc})
     return resp
+
+
+def _seed_live_run(state: PhoneState, slug: str) -> None:
+    """Create a pending Run directly in state without running the executor.
+
+    Used by tests that need a live run without racing the dummy's fast completion.
+    """
+    state.submit(PhoneCommand(
+        name="t",
+        steps=[CommandStep(argv=["echo", "hi"])],
+        run_option=RunOption(slug=slug),
+    ))
 
 
 def _force_terminal(state: PhoneState, slug: str) -> None:
@@ -80,9 +90,9 @@ def test_submit_409_when_terminal_unreaped():
 
 
 def test_submit_409_when_live_with_mutex():
-    client, _, _ = _make_client()
-    _submit(client, daemon=True, slug="X")
-    resp = _submit(client, daemon=True, slug="X", mutex_by_slug=True)
+    client, _, state = _make_client()
+    _seed_live_run(state, "X")
+    resp = _submit(client, slug="X", mutex_by_slug=True)
     assert resp.status_code == 409
 
 
@@ -190,8 +200,8 @@ def test_reap_terminal_succeeds():
 
 
 def test_reap_live_run_409():
-    client, _, _ = _make_client()
-    _submit(client, daemon=True, slug="X")
+    client, _, state = _make_client()
+    _seed_live_run(state, "X")
     resp = client.post("/api/runs/X/reap")
     assert resp.status_code == 409
 

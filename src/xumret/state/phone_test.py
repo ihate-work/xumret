@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from xumret.executor.models import PhoneCommand, ProcessStep, RunOption
+from xumret.executor.models import CommandStep, PhoneCommand, RunOption
 from xumret.state.models import (
     RunStateCancelled,
     RunStateCompleted,
@@ -22,8 +22,7 @@ from xumret.state.phone import (
 def _pc(*, slug: str | None = None, mutex: bool = False) -> PhoneCommand:
     return PhoneCommand(
         name="t",
-        steps=[ProcessStep(argv=["echo", "hi"])],
-        connections=[],
+        steps=[CommandStep(argv=["echo", "hi"])],
         run_option=RunOption(slug=slug, mutex_by_slug=mutex),
     )
 
@@ -185,18 +184,3 @@ def test_unsubscribe_stops_delivery():
 def test_unsubscribe_unknown_queue_is_noop():
     state = PhoneState()
     state.unsubscribe(asyncio.Queue())  # should not raise
-
-
-def test_reap_stops_forwarding_for_that_run():
-    state = PhoneState()
-    q = state.subscribe()
-    state.submit(_pc(slug="X"))
-    _force_terminal(state, "X")
-    # Drain
-    while not q.empty():
-        q.get_nowait()
-    run_X = state.get("X")
-    state.reap("X")
-    # Emitting on the (now-detached) Run should not feed phone subscribers.
-    run_X.emit(RunStateCancelled(slug="X", at=time.time()))
-    assert q.empty()

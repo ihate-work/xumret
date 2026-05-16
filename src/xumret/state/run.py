@@ -27,14 +27,12 @@ from xumret.state.models import (
     RunRecord,
     RunStateCancelled,
     RunStateCompleted,
-    RunStateCreated,
-    RunStateDaemonEnded,
-    RunStateDaemonStarted,
     RunStateEvent,
     RunStateFailed,
     RunStateRunning,
     RunStateStepExited,
     RunStateStepStarted,
+    RunStateTimedOut,
     RunStatus,
     StepState,
 )
@@ -47,7 +45,13 @@ OUTPUT_TAIL_CAP = 128 * 1024  # 128 KiB per process per fd
 class Run:
     """Live per-run handle: receipt + producer + multi-subscriber stream."""
 
-    def __init__(self, *, slug: str, phone_command: PhoneCommand) -> None:
+    def __init__(
+        self,
+        *,
+        slug: str,
+        phone_command: PhoneCommand,
+        on_event: Callable[[RunEvent], None] | None = None,
+    ) -> None:
         self.slug = slug
         self.phone_command = phone_command
         self.created_at = time.time()
@@ -56,10 +60,10 @@ class Run:
         self._updated_at = self.created_at
         self._steps = [StepState() for _ in phone_command.steps]
         self._transitions: list[RunStateEvent] = []
-        self._daemon_started = False
-        self._daemon_ended = False
         self._subscribers: list[asyncio.Queue[RunEvent]] = []
-        self._listeners: list[Callable[[RunEvent], None]] = []
+        # Single sync callback fired after _apply, before subscriber fan-out.
+        # Used by PhoneState for phone-wide event broadcast.
+        self._on_event = on_event
 
     # --- queries ---
 
@@ -84,8 +88,6 @@ class Run:
             created_at=self.created_at,
             updated_at=self._updated_at,
             error=self._error,
-            daemon_started=self._daemon_started,
-            daemon_ended=self._daemon_ended,
             steps=[s.model_copy() for s in self._steps],
             transitions=list(self._transitions),
         )
@@ -93,13 +95,13 @@ class Run:
     # --- producer ---
 
     def emit(self, event: RunEvent) -> None:
-        """Apply event to internal state, notify listeners, broadcast to subscribers."""
+        """Apply event to internal state, invoke on_event, broadcast to subscribers."""
         self._apply(event)
-        for fn in list(self._listeners):
+        if self._on_event is not None:
             try:
-                fn(event)
+                self._on_event(event)
             except Exception:
-                logger.exception("run listener failed", slug=self.slug)
+                logger.exception("run on_event failed", slug=self.slug)
         for q in list(self._subscribers):
             try:
                 q.put_nowait(event)
@@ -124,16 +126,6 @@ class Run:
         except ValueError:
             pass
 
-    def add_listener(self, fn: Callable[[RunEvent], None]) -> None:
-        """Register a sync callback invoked during emit (before queue fan-out)."""
-        self._listeners.append(fn)
-
-    def remove_listener(self, fn: Callable[[RunEvent], None]) -> None:
-        try:
-            self._listeners.remove(fn)
-        except ValueError:
-            pass
-
     # --- internal: event application ---
 
     def _apply(self, event: RunEvent) -> None:
@@ -142,11 +134,8 @@ class Run:
             self._apply_output(event)
             return
 
-        # state event
         self._transitions.append(event)
-        if isinstance(event, RunStateCreated):
-            self._status = RunStatus.pending
-        elif isinstance(event, RunStateRunning):
+        if isinstance(event, RunStateRunning):
             self._status = RunStatus.running
         elif isinstance(event, RunStateStepStarted):
             self._steps[event.step_index].pid = event.pid
@@ -159,34 +148,17 @@ class Run:
             self._error = event.error
         elif isinstance(event, RunStateCancelled):
             self._status = RunStatus.cancelled
-        elif isinstance(event, RunStateDaemonStarted):
-            self._daemon_started = True
-        elif isinstance(event, RunStateDaemonEnded):
-            self._daemon_ended = True
-        # daemon_status: no state mutation, just flows through
+        elif isinstance(event, RunStateTimedOut):
+            self._status = RunStatus.timed_out
+        # RunStateCreated: no-op (status is already pending at construction).
 
     def _apply_output(self, event: RunOutputEvent) -> None:
+        # Binary-mode bytes aren't stored in the snapshot tail — subscribers see them live.
+        if not event.lines:
+            return
         step = self._steps[event.step_index]
+        joined = "\n".join(event.lines) + "\n"
         if event.fd == "stdout":
-            tail = step.stdout_tail
-            dropped = step.stdout_dropped
+            step.stdout_tail = (step.stdout_tail + joined)[-OUTPUT_TAIL_CAP:]
         else:
-            tail = step.stderr_tail
-            dropped = step.stderr_dropped
-
-        if event.lines:
-            tail = (tail + "\n".join(event.lines) + "\n")[-OUTPUT_TAIL_CAP:]
-        # binary-mode bytes are not appended to the snapshot tail (it's a text
-        # field). Live consumers see the bytes via the SSE event itself.
-
-        if event.dropped_lines:
-            dropped += event.dropped_lines
-        if event.dropped_bytes:
-            dropped += event.dropped_bytes
-
-        if event.fd == "stdout":
-            step.stdout_tail = tail
-            step.stdout_dropped = dropped
-        else:
-            step.stderr_tail = tail
-            step.stderr_dropped = dropped
+            step.stderr_tail = (step.stderr_tail + joined)[-OUTPUT_TAIL_CAP:]
