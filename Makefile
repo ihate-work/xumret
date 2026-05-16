@@ -34,6 +34,10 @@ client-local: runtime-deps
 server-dev: runtime-deps
 	OTEL_SERVICE_NAME=xumret-server venv/bin/python -m xumret server --host 0.0.0.0 --port 8765
 
+# Run `./xumret single --dummy` with auto-reload on src/*.py changes
+single-dev: deps
+	venv/bin/watchmedo auto-restart -d src -p '*.py' -R -- ./xumret single --dummy
+
 ###
 ### SECTION deps
 ###

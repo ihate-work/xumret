@@ -3,6 +3,7 @@ httpx>=0.28.1
 pytest>=9.0.3
 pytest-cov>=7.1.0
 pytest-watcher>=0.6.3
+watchdog>=6.0.0
 mypy>=1.20.2
 # pur: pip-update-requirements (used by `make upgrade-deps`)
 pur==7.4.0
