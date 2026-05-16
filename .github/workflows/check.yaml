@@ -26,6 +26,8 @@ jobs:
 
       - run: PYTHON_VER=${{ matrix.python-version }} make deps
 
+      - run: make typecheck
+
       - run: make test-cov
 
       - name: Upload coverage to Codecov

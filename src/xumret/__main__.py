@@ -11,7 +11,7 @@ o11y.setup_structlog(level=logging.DEBUG)
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """xumret - remote control for termux-api."""
 
 

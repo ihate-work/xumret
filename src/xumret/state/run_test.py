@@ -32,32 +32,32 @@ def _now() -> float:
 # --- emit + apply ---
 
 
-def test_initial_state_pending():
+def test_initial_state_pending() -> None:
     run = Run(slug="s", phone_command=_pc())
     assert run.status == RunStatus.pending
     assert run.is_live
     assert not run.is_terminal
 
 
-def test_emit_running_transitions_status():
+def test_emit_running_transitions_status() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunStateRunning(slug="s", at=_now()))
     assert run.status == RunStatus.running
 
 
-def test_emit_step_started_records_pid():
+def test_emit_step_started_records_pid() -> None:
     run = Run(slug="s", phone_command=_pc(steps=2))
     run.emit(RunStateStepStarted(slug="s", at=_now(), step_index=0, pid=4242))
     assert run.record.steps[0].pid == 4242
 
 
-def test_emit_step_exited_records_exit_code():
+def test_emit_step_exited_records_exit_code() -> None:
     run = Run(slug="s", phone_command=_pc(steps=2))
     run.emit(RunStateStepExited(slug="s", at=_now(), step_index=1, exit_code=3))
     assert run.record.steps[1].exit_code == 3
 
 
-def test_completed_is_terminal():
+def test_completed_is_terminal() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunStateRunning(slug="s", at=_now()))
     run.emit(RunStateCompleted(slug="s", at=_now()))
@@ -65,7 +65,7 @@ def test_completed_is_terminal():
     assert run.status == RunStatus.completed
 
 
-def test_failed_records_error():
+def test_failed_records_error() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunStateFailed(slug="s", at=_now(), error="boom"))
     assert run.is_terminal
@@ -73,7 +73,7 @@ def test_failed_records_error():
     assert run.record.error == "boom"
 
 
-def test_cancelled_is_terminal():
+def test_cancelled_is_terminal() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunStateCancelled(slug="s", at=_now()))
     assert run.is_terminal
@@ -83,7 +83,7 @@ def test_cancelled_is_terminal():
 # --- output handling ---
 
 
-def test_lines_appended_to_stdout_tail():
+def test_lines_appended_to_stdout_tail() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunOutputEvent(
         slug="s", at=_now(), step_index=0, fd="stdout", lines=["a", "b"],
@@ -91,7 +91,7 @@ def test_lines_appended_to_stdout_tail():
     assert run.record.steps[0].stdout_tail == "a\nb\n"
 
 
-def test_stderr_lines_separate_from_stdout():
+def test_stderr_lines_separate_from_stdout() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunOutputEvent(
         slug="s", at=_now(), step_index=0, fd="stdout", lines=["out"],
@@ -104,7 +104,7 @@ def test_stderr_lines_separate_from_stdout():
     assert step.stderr_tail == "err\n"
 
 
-def test_tail_caps_at_128k():
+def test_tail_caps_at_128k() -> None:
     run = Run(slug="s", phone_command=_pc())
     big = "x" * (OUTPUT_TAIL_CAP * 2)
     run.emit(RunOutputEvent(
@@ -117,7 +117,7 @@ def test_tail_caps_at_128k():
 # --- subscriptions ---
 
 
-def test_subscribers_receive_events():
+def test_subscribers_receive_events() -> None:
     async def go() -> None:
         run = Run(slug="s", phone_command=_pc())
         q = run.subscribe()
@@ -127,7 +127,7 @@ def test_subscribers_receive_events():
     asyncio.run(go())
 
 
-def test_multiple_subscribers_all_receive():
+def test_multiple_subscribers_all_receive() -> None:
     async def go() -> None:
         run = Run(slug="s", phone_command=_pc())
         q1, q2 = run.subscribe(), run.subscribe()
@@ -139,7 +139,7 @@ def test_multiple_subscribers_all_receive():
     asyncio.run(go())
 
 
-def test_unsubscribe_stops_delivery():
+def test_unsubscribe_stops_delivery() -> None:
     async def go() -> None:
         run = Run(slug="s", phone_command=_pc())
         q = run.subscribe()
@@ -149,7 +149,7 @@ def test_unsubscribe_stops_delivery():
     asyncio.run(go())
 
 
-def test_on_event_called_synchronously():
+def test_on_event_called_synchronously() -> None:
     seen: list[str] = []
     run = Run(
         slug="s",
@@ -161,7 +161,7 @@ def test_on_event_called_synchronously():
     assert seen == ["created", "running"]
 
 
-def test_on_event_exception_does_not_break_subscribers():
+def test_on_event_exception_does_not_break_subscribers() -> None:
     def boom(ev):
         raise RuntimeError("on_event failed")
 
@@ -171,7 +171,7 @@ def test_on_event_exception_does_not_break_subscribers():
     assert not q.empty()
 
 
-def test_record_includes_transitions():
+def test_record_includes_transitions() -> None:
     run = Run(slug="s", phone_command=_pc())
     run.emit(RunStateCreated(slug="s", at=_now()))
     run.emit(RunStateRunning(slug="s", at=_now()))

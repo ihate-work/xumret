@@ -223,7 +223,11 @@ class LocalExecutor:
         inbound_read_fd: dict[int, int] = {}
         outbound_write_fd: dict[tuple[int, FdName], int] = {}
         for step in graph.steps:
-            for fd_name, plan in (("stdout", step.stdout), ("stderr", step.stderr)):
+            fds: list[tuple[FdName, FdPlan]] = [
+                ("stdout", step.stdout),
+                ("stderr", step.stderr),
+            ]
+            for fd_name, plan in fds:
                 if plan.forward_to is not None:
                     r, w = os.pipe()
                     inbound_read_fd[plan.forward_to] = r
@@ -275,10 +279,11 @@ class LocalExecutor:
     ) -> list[asyncio.Task]:
         tasks: list[asyncio.Task] = []
         for step, proc in zip(graph.steps, procs, strict=True):
-            for fd_name, plan, reader in (
+            fds: list[tuple[FdName, FdPlan, asyncio.StreamReader | None]] = [
                 ("stdout", step.stdout, proc.stdout),
                 ("stderr", step.stderr, proc.stderr),
-            ):
+            ]
+            for fd_name, plan, reader in fds:
                 if reader is None:
                     continue
                 fwd_fd = fwd_fds.get((step.step_index, fd_name))

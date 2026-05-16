@@ -96,10 +96,11 @@ class ProcessGraphBuilder:
         n = len(pc.steps)
         edges: list[tuple[int, FdName, int]] = []
         for i, step in enumerate(pc.steps):
-            for fd_name, cfg in (
+            streams: list[tuple[FdName, StreamConfig]] = [
                 ("stdout", step.stdout_stream),
                 ("stderr", step.stderr_stream),
-            ):
+            ]
+            for fd_name, cfg in streams:
                 dst = cfg.forward_dest_process_idx
                 if dst is None:
                     continue

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from httpx._models import Response
 import time
 
 from fastapi.testclient import TestClient
@@ -26,7 +27,7 @@ def _submit(
     slug: str | None = None,
     mutex_by_slug: bool = False,
     argv: list[str] | None = None,
-):
+) -> Response:
     pc = {
         "name": name,
         "steps": [{"argv": argv or ["termux-toast", "hi"]}],
@@ -57,7 +58,7 @@ def _force_terminal(state: PhoneState, slug: str) -> None:
 # --- POST /api/runs ---
 
 
-def test_submit_returns_record():
+def test_submit_returns_record() -> None:
     client, _, _ = _make_client()
     resp = _submit(client)
     assert resp.status_code == 200
@@ -68,20 +69,20 @@ def test_submit_returns_record():
     assert data["steps"]
 
 
-def test_submit_with_slug_uses_it():
+def test_submit_with_slug_uses_it() -> None:
     client, _, _ = _make_client()
     data = _submit(client, slug="my-run").json()
     assert data["slug"] == "my-run"
 
 
-def test_submit_idempotent_join_returns_same_slug():
+def test_submit_idempotent_join_returns_same_slug() -> None:
     client, _, state = _make_client()
     a = _submit(client, slug="X").json()
     b = _submit(client, slug="X").json()
     assert a["slug"] == b["slug"] == "X"
 
 
-def test_submit_409_when_terminal_unreaped():
+def test_submit_409_when_terminal_unreaped() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -89,7 +90,7 @@ def test_submit_409_when_terminal_unreaped():
     assert resp.status_code == 409
 
 
-def test_submit_409_when_live_with_mutex():
+def test_submit_409_when_live_with_mutex() -> None:
     client, _, state = _make_client()
     _seed_live_run(state, "X")
     resp = _submit(client, slug="X", mutex_by_slug=True)
@@ -99,14 +100,14 @@ def test_submit_409_when_live_with_mutex():
 # --- GET /api/runs ---
 
 
-def test_list_empty():
+def test_list_empty() -> None:
     client, _, _ = _make_client()
     resp = client.get("/api/runs")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-def test_list_after_submit():
+def test_list_after_submit() -> None:
     client, _, _ = _make_client()
     _submit(client)
     _submit(client)
@@ -118,7 +119,7 @@ def test_list_after_submit():
 # --- GET /api/runs/{slug} ---
 
 
-def test_get_run():
+def test_get_run() -> None:
     client, _, _ = _make_client()
     handle = _submit(client, slug="X").json()
     resp = client.get(f"/api/runs/{handle['slug']}")
@@ -126,13 +127,13 @@ def test_get_run():
     assert resp.json()["slug"] == "X"
 
 
-def test_get_run_not_found():
+def test_get_run_not_found() -> None:
     client, _, _ = _make_client()
     resp = client.get("/api/runs/no-such")
     assert resp.status_code == 404
 
 
-def test_get_run_slim_omits_transitions():
+def test_get_run_slim_omits_transitions() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -143,7 +144,7 @@ def test_get_run_slim_omits_transitions():
 # --- GET /api/runs/{slug}/state ---
 
 
-def test_get_state_includes_transitions():
+def test_get_state_includes_transitions() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -153,7 +154,7 @@ def test_get_state_includes_transitions():
     assert "completed" in types
 
 
-def test_get_state_not_found():
+def test_get_state_not_found() -> None:
     client, _, _ = _make_client()
     resp = client.get("/api/runs/nope/state")
     assert resp.status_code == 404
@@ -162,13 +163,13 @@ def test_get_state_not_found():
 # --- POST /api/runs/{slug}/stop ---
 
 
-def test_stop_unknown_slug_404():
+def test_stop_unknown_slug_404() -> None:
     client, _, _ = _make_client()
     resp = client.post("/api/runs/nope/stop")
     assert resp.status_code == 404
 
 
-def test_stop_terminal_run_is_noop_success():
+def test_stop_terminal_run_is_noop_success() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -176,7 +177,7 @@ def test_stop_terminal_run_is_noop_success():
     assert resp.status_code == 200
 
 
-def test_stop_idempotent():
+def test_stop_idempotent() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -188,7 +189,7 @@ def test_stop_idempotent():
 # --- POST /api/runs/{slug}/reap ---
 
 
-def test_reap_terminal_succeeds():
+def test_reap_terminal_succeeds() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -199,20 +200,20 @@ def test_reap_terminal_succeeds():
     assert client.get("/api/runs/X").status_code == 404
 
 
-def test_reap_live_run_409():
+def test_reap_live_run_409() -> None:
     client, _, state = _make_client()
     _seed_live_run(state, "X")
     resp = client.post("/api/runs/X/reap")
     assert resp.status_code == 409
 
 
-def test_reap_unknown_slug_404():
+def test_reap_unknown_slug_404() -> None:
     client, _, _ = _make_client()
     resp = client.post("/api/runs/nope/reap")
     assert resp.status_code == 404
 
 
-def test_reap_then_reap_404():
+def test_reap_then_reap_404() -> None:
     client, _, state = _make_client()
     _submit(client, slug="X")
     _force_terminal(state, "X")
@@ -224,7 +225,7 @@ def test_reap_then_reap_404():
 # --- DELETE not exposed ---
 
 
-def test_delete_not_allowed():
+def test_delete_not_allowed() -> None:
     client, _, _ = _make_client()
     handle = _submit(client, slug="X").json()
     resp = client.delete(f"/api/runs/{handle['slug']}")
