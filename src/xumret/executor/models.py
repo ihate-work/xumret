@@ -2,14 +2,13 @@
 
 A PhoneCommand defines a pipeline of one or more processes and how they connect.
 
-`daemon=False`: pipeline runs to completion; lifecycle goes
-pending → running → completed / failed / cancelled.
+Lifecycle is uniform: pending → running → completed / failed / cancelled.
+`RunOption.timeout` bounds how long the pipeline may run; absence means "no
+time bound" — which, combined with `mutex_by_slug`, is how callers express
+daemon-like commands (the frontend uses that combo as a UI heuristic).
 
-`daemon=True`: pipeline starts and stays alive; lifecycle adds
-daemon_started / daemon_ended events on top.
-
-Either way the executor emits per-step events; consumers observe the run
-through the `Run` abstraction (see `xumret.state.run`).
+The executor emits per-step events; consumers observe the run through the
+`Run` abstraction (see `xumret.state.run`).
 """
 
 from __future__ import annotations
@@ -20,43 +19,49 @@ from pydantic import BaseModel
 
 
 class StreamConfig(BaseModel):
-    """How to read and frame one fd of one ProcessStep."""
+    """How to handle one stream of a step.
+
+    Two options that can mix:
+    - forward to another step's stdin (`forward_dest_process_idx`)
+    - capture via temp file on the executor (expected use: to reap the last
+      step, or to debug). Never piped into executor memory.
+
+    A stream that is neither captured nor forwarded is implicitly dropped.
+    """
 
     mode: Literal["lines", "binary"] = "lines"
-    back_pressure: bool = False
+    # capture: executor writes the stream to a temp file and surfaces it in events.
+    capture: bool = False
+    # forward to stdin of steps[forward_dest_process_idx].
+    # Executor validates that the resulting graph is well-formed.
+    forward_dest_process_idx: int | None = None
 
 
-class ProcessStep(BaseModel):
+class CommandStep(BaseModel):
+    """One process in a pipeline."""
+
     argv: list[str]
     stdout_stream: StreamConfig = StreamConfig()
     stderr_stream: StreamConfig = StreamConfig()
 
 
-class Pipe(BaseModel):
-    """stdout of previous step -> stdin of next step."""
-
-    type: Literal["pipe"] = "pipe"
-
-
-class TempFile(BaseModel):
-    """Previous step writes to a temp file, next step reads it."""
-
-    type: Literal["temp_file"] = "temp_file"
-
-
-Connection = Pipe | TempFile
-
-
 class RunOption(BaseModel):
-    """Caller-declared identity and dedup policy for a Run."""
+    """Caller-declared policy for a Run. TODO: rename to RunConfig"""
 
+    # timeout: max wall-clock seconds before the executor cancels the run.
+    # None = no time bound. (mutex_by_slug + timeout=None is the daemon shape.)
+    timeout: float | None = None
+    # slug: a caller-provided identifier for the run
+    # can be used to dedup commands that don't need multiple running instances
     slug: str | None = None
+    # when True: don't run the command if another live run exists with the same slug; instead raise SubmitConflict.
     mutex_by_slug: bool = False
 
 
 class PhoneCommand(BaseModel):
+    # name: non-unique title
     name: str
-    steps: list[ProcessStep]
-    connections: list[Connection]  # len == len(steps) - 1
-    daemon: bool = False
+    # desc: non-unique longer description
+    desc: str | None = None
+    steps: list[CommandStep]
     run_option: RunOption = RunOption()
