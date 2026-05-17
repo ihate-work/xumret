@@ -24,10 +24,12 @@ def cli() -> None:
 def single(host: str, port: int, dummy: bool) -> None:
     """Run xumret in single mode (everything on phone)."""
 
+    from xumret.protocol.executor import Executor
     from xumret.server.api.app import create_app
     from xumret.single import SingleMain
     from xumret.state.phone import PhoneState
 
+    executor: Executor
     if dummy:
         from xumret.executor.dummy_executor import DummyExecutor
 
