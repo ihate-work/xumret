@@ -19,7 +19,7 @@ uvicorn>=0.46.0
 # moved to requirements-dev.txt
 
 # shared library
-ihate-work>=2025.5.6
+ihate-work>=2026.5.17
 # ihate-work @ git+https://github.com/ihate-work/ihate-library
 # --editable PATH_TO_LOCAL_IHATE_LIBRARY
 --editable .
