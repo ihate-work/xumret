@@ -1,0 +1,14 @@
+# Local-only Makefile variables. NOT checked into git.
+#
+# Copy this file to Makefile.var and fill in your own values. The main Makefile
+# does `include Makefile.var` (no leading dash) so it is REQUIRED — make will
+# error out until you create one. This is intentional: missing config should
+# fail loudly, not silently produce wrong commands.
+#
+# Add new variables here when you want a Makefile target to reference something
+# machine- or secret-specific (hosts, IPs, tokens, paths). Each variable should
+# be documented with a one-line comment so the next person knows what to put.
+
+# Host:port where a remote xumret server is running. Used by targets that talk
+# to (or deploy to) that instance.
+REMOTE_ADDR = 127.0.0.1:8080

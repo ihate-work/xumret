@@ -24,11 +24,18 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Seed Makefile.var from template
+        run: cp Makefile.var.template Makefile.var
+
       - run: PYTHON_VER=${{ matrix.python-version }} make deps
 
       - run: make typecheck
 
       - run: make test-cov
+
+      - name: Build production webui
+        if: matrix.python-version == '3.13'
+        run: make webui-prod-build
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13'

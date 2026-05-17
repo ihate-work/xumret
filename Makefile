@@ -1,4 +1,9 @@
 
+# Local-only overrides / secrets (host IPs, tokens, ...). Required — copy
+# Makefile.var.template → Makefile.var and edit. We require it so missing
+# config fails loudly instead of silently producing wrong commands.
+include Makefile.var
+
 default: runtime-deps
 	@echo "deps installed"
 
@@ -24,7 +29,10 @@ test-watch: deps
 	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
 
 webui-dev: deps
-	npx vite --host
+	REMOTE_ADDR='$(REMOTE_ADDR)' npx vite --host
+
+webui-prod-build: deps
+	npm run build
 
 # Run client connecting to localhost (for local dev)
 client-local: runtime-deps
