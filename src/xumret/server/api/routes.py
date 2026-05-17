@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from xumret.executor.models import PhoneCommand
+from xumret.protocol.device import Device
 from xumret.protocol.service import XumretService
 from xumret.server.api import get_service
 from xumret.state.models import RunRecord
@@ -23,6 +24,16 @@ router = APIRouter(prefix="/api")
 
 class SubmitRequest(BaseModel):
     phone_command: PhoneCommand
+
+
+# --- devices ---
+
+
+@router.get("/devices")
+async def list_devices(
+    svc: XumretService = Depends(get_service),
+) -> list[Device]:
+    return await svc.list_devices()
 
 
 # --- submit / list ---

@@ -56,6 +56,13 @@ class RunOption(BaseModel):
     slug: str | None = None
     # when True: don't run the command if another live run exists with the same slug; instead raise SubmitConflict.
     mutex_by_slug: bool = False
+    # TODO: stale-while-revalidate execution mode. Caller declares "this
+    # command's output is cacheable for N seconds" (e.g. `cache_for: float`).
+    # If a recent successful run with the same slug completed within N seconds,
+    # return its record instead of re-running. If older, return the cached
+    # record AND kick off a background refresh. Without this, on-demand device
+    # state fetches re-run every UI render — wasteful for cheap-but-frequent
+    # queries like termux-battery-status.
 
 
 class PhoneCommand(BaseModel):

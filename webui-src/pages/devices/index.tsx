@@ -1,39 +1,39 @@
+import { useEffect, useState } from 'react';
 import { Card } from 'primereact/card';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
-import { Tag } from 'primereact/tag';
+import { Message } from 'primereact/message';
+import { ProgressSpinner } from 'primereact/progressspinner';
 import { useLocation } from 'wouter';
-
-interface Device {
-  id: string;
-  name: string;
-  status: 'online' | 'offline';
-}
-
-const placeholder: Device[] = [
-  { id: 'phone-1', name: 'Pixel 7', status: 'online' },
-];
+import { listDevices, type Device } from '~/util/devices';
 
 export function DevicesPage() {
   const [, navigate] = useLocation();
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listDevices()
+      .then((d) => { if (!cancelled) setDevices(d); })
+      .catch((e) => { if (!cancelled) setErr(String(e)); });
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <Card title="Devices">
-      <DataTable
-        value={placeholder}
-        selectionMode="single"
-        onRowSelect={(e) => navigate(`/devices/${e.data.id}`)}
-      >
-        <Column field="name" header="Name" />
-        <Column field="id" header="ID" />
-        <Column
-          field="status"
-          header="Status"
-          body={(row: Device) => (
-            <Tag value={row.status} severity={row.status === 'online' ? 'success' : 'danger'} />
-          )}
-        />
-      </DataTable>
+      {err && <Message severity="error" text={err} />}
+      {!err && devices === null && <ProgressSpinner style={{ width: '2rem', height: '2rem' }} />}
+      {devices !== null && (
+        <DataTable
+          value={devices}
+          selectionMode="single"
+          onRowSelect={(e) => navigate(`/devices/${e.data.id}`)}
+        >
+          <Column field="name" header="Name" />
+          <Column field="id" header="ID" />
+        </DataTable>
+      )}
     </Card>
   );
 }

@@ -11,11 +11,13 @@ orchestrator (`HubMain`) will hold many `PhoneState`s.
 from __future__ import annotations
 
 import asyncio
+import socket
 import time
 
 import ihate_work.o11y as o11y
 
 from xumret.executor.models import PhoneCommand
+from xumret.protocol.device import Device
 from xumret.protocol.executor import Executor
 from xumret.state.models import RunEvent, RunRecord, RunStateFailed
 from xumret.state.phone import (
@@ -44,6 +46,10 @@ class SingleMain:
             await self._executor.shutdown()
 
     # --- XumretService interface ---
+
+    async def list_devices(self) -> list[Device]:
+        host = socket.gethostname()
+        return [Device(id=host, name=host)]
 
     async def submit(self, phone_command: PhoneCommand) -> RunRecord:
         run = self._state.submit(phone_command)

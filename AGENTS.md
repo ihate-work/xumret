@@ -43,4 +43,4 @@ Inherited from vibra conventions:
 - **dotenv**: Always `load_dotenv(override=False)`.
 - **Formatting**: ruff (line-length 100, select E/F/I/N/W/UP).
 - **Supply-chain cooldown**: Two layers — `[tool.uv] exclude-newer = "8d"` in `pyproject.toml` caps `make deps`, and `pur --cooldown-days=9` in `make upgrade-deps` caps upgrades. Both are required so we never install a freshly published (potentially typosquatted or hijacked) version.
-- **Verify after editing**: After editing Python code, run `make typecheck` and `make test` before reporting the task complete. Fix any errors introduced.
+- **Verify after editing**: After editing Python code, run `make typecheck` and `make test` before reporting the task complete. After editing webui-src/ code, run `npx tsc` and `npm run build` (tsconfig.json has `noEmit: true`, so `tsc` is typecheck-only). Fix any errors introduced.
