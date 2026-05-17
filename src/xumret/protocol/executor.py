@@ -11,17 +11,20 @@ Implementations:
 
 from __future__ import annotations
 
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 from xumret.state.run import Run
 
 
-class Executor(Protocol):
+class Executor(ABC):
+    @abstractmethod
     async def run(self, run: Run) -> None:
         """Drive the run to a terminal state, emitting events along the way."""
 
+    @abstractmethod
     async def stop(self, slug: str) -> None:
         """Signal cancellation to a live run. No-op if unknown or already terminal."""
 
+    @abstractmethod
     async def shutdown(self) -> None:
         """Best-effort shutdown of all in-flight runs."""

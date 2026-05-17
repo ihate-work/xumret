@@ -13,6 +13,7 @@ import time
 
 import ihate_work.o11y as o11y
 
+from xumret.protocol.executor import Executor
 from xumret.state.models import (
     RunOutputEvent,
     RunStateCancelled,
@@ -149,7 +150,7 @@ def _fake_stdout(binary: str, argv: list[str]) -> str:
     return json.dumps({"dummy": True, "argv": argv}) + "\n"
 
 
-class DummyExecutor:
+class DummyExecutor(Executor):
     """Implements `Executor` with fake events. No real processes are spawned."""
 
     def __init__(self) -> None:

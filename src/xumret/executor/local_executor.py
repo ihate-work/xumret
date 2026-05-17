@@ -24,6 +24,7 @@ from xumret.executor.process_graph import (
     ProcessGraph,
     ProcessGraphBuilder,
 )
+from xumret.protocol.executor import Executor
 from xumret.state.models import (
     RunOutputEvent,
     RunStateCancelled,
@@ -39,13 +40,13 @@ from xumret.state.run import Run
 logger, *_ = o11y.get_o11y(__name__)
 
 _BINARY_CHUNK = 4096
-_TERM_GRACE_SEC = 0.5
+_TERM_GRACE_SEC = 5.0
 
 FdName = Literal["stdout", "stderr"]
 _Outcome = Literal["completed", "cancelled", "timed_out"]
 
 
-class LocalExecutor:
+class LocalExecutor(Executor):
     """Implements `Executor` by spawning local subprocesses."""
 
     def __init__(self) -> None:
@@ -113,7 +114,10 @@ class LocalExecutor:
         for i, proc in enumerate(procs):
             run.emit(
                 RunStateStepStarted(
-                    slug=slug, at=time.time(), step_index=i, pid=proc.pid or 0,
+                    slug=slug,
+                    at=time.time(),
+                    step_index=i,
+                    pid=proc.pid or 0,
                 )
             )
 
@@ -123,7 +127,10 @@ class LocalExecutor:
             code = await p.wait()
             run.emit(
                 RunStateStepExited(
-                    slug=slug, at=time.time(), step_index=idx, exit_code=code,
+                    slug=slug,
+                    at=time.time(),
+                    step_index=idx,
+                    exit_code=code,
                 )
             )
 
@@ -239,7 +246,9 @@ class LocalExecutor:
                 stdin_fd = inbound_read_fd.get(step.step_index)
                 proc = await asyncio.create_subprocess_exec(
                     *step.argv,
-                    stdin=stdin_fd if stdin_fd is not None else asyncio.subprocess.DEVNULL,
+                    stdin=stdin_fd
+                    if stdin_fd is not None
+                    else asyncio.subprocess.DEVNULL,
                     stdout=self._spawn_arg(step.stdout),
                     stderr=self._spawn_arg(step.stderr),
                 )
@@ -290,7 +299,13 @@ class LocalExecutor:
                 tasks.append(
                     asyncio.create_task(
                         self._read_fd(
-                            run, step.step_index, fd_name, reader, plan, tmpdir, fwd_fd,
+                            run,
+                            step.step_index,
+                            fd_name,
+                            reader,
+                            plan,
+                            tmpdir,
+                            fwd_fd,
                         ),
                         name=f"reader[{run.slug}.{step.step_index}.{fd_name}]",
                     )
@@ -313,17 +328,32 @@ class LocalExecutor:
         try:
             if plan.mode == "lines":
                 await self._read_lines(
-                    run, step_index, fd_name, reader, plan, capture_f, fwd_fd,
+                    run,
+                    step_index,
+                    fd_name,
+                    reader,
+                    plan,
+                    capture_f,
+                    fwd_fd,
                 )
             else:
                 await self._read_binary(
-                    run, step_index, fd_name, reader, plan, capture_f, fwd_fd,
+                    run,
+                    step_index,
+                    fd_name,
+                    reader,
+                    plan,
+                    capture_f,
+                    fwd_fd,
                 )
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception(
-                "reader crashed", slug=run.slug, step=step_index, fd=fd_name,
+                "reader crashed",
+                slug=run.slug,
+                step=step_index,
+                fd=fd_name,
             )
         finally:
             if capture_f is not None:
