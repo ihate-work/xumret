@@ -166,6 +166,7 @@ def test_phone_subscriber_sees_run_transitions() -> None:
     q = state.subscribe()
     state.submit(_pc(slug="X"))
     run = state.get("X")
+    assert run is not None
     run.emit(RunStateRunning(slug="X", at=time.time()))
     types: list[str] = []
     while not q.empty():

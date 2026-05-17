@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from xumret.executor.models import PhoneCommand
+from xumret.executor.models import PhoneCommand, StreamConfig
 
 FdName = Literal["stdout", "stderr"]
 
