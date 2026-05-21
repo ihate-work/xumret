@@ -16,5 +16,5 @@ small ideas thay might land in future. each entry should be VERY VERY concise bu
     — WebUI API contract is `/api` only; keep the host switch in one place for real-device dev.
 - [ ] 2026-05-09 Run as live handle; slug == identifier; reap before re-submit → [doc/design-process-management.md](design-process-management.md)
     — submit a `PhoneCommand`, observe a `Run`. Slug is client-declared (mechanism vs. policy). Live + unreaped-terminal both block fresh submit; cancel transitions to terminal, reap removes. Verbs: GET/PUT/POST only, no DELETE.
-- [ ] 2026-05-22 hand-written SWR hooks in `webui-src/api/index.ts` instead of `@hey-api/openapi-ts` `swr` plugin
-    — v0.97.1 emits `import type useSWR` (unusable at runtime) and drops path params from hook signatures. Re-enable plugin (and trim index.ts down to a re-export) once a fixed version (≥0.97.2) clears the 14-day npm cooldown.
+- [ ] 2026-05-22 single generic `useApi(sdkFn, args?, config?)` hook in `webui-src/api/index.tsx`
+    — replaces per-endpoint hooks AND the broken `@hey-api/openapi-ts` v0.97.1 'swr' plugin. Takes an SDK function reference; cache key is `[fn.name, args]` (no URL strings at call sites). Client injected from `ApiContext` (default = generated singleton, overridable via `<ApiProvider client={...}>` for tests/mocks). Always sets `throwOnError: true` and unwraps `.data`. `args = null` disables the fetch (SWR conditional pattern); `args` omitted is fine for no-arg endpoints.
