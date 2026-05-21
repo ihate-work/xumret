@@ -9,3 +9,5 @@ mypy>=1.20.2
 pur==7.4.0
 setuptools==82.0.1
 pyrefly
+PyYAML
+types-PyYAML

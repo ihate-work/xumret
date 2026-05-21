@@ -34,6 +34,10 @@ webui-dev: deps
 webui-prod-build: deps
 	npm run build
 
+# Export the FastAPI OpenAPI schema to webui-src/api/openapi.yaml
+openapi: deps
+	venv/bin/python -m xumret dev-openapi -o webui-src/api/openapi.yaml
+
 # Run client connecting to localhost (for local dev)
 client-local: runtime-deps
 	OTEL_SERVICE_NAME=xumret-client venv/bin/python -m xumret client --host localhost --port 8765

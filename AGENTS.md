@@ -39,6 +39,7 @@ Inherited from vibra conventions:
 - **o11y**: Use `ihate_work.o11y` exclusively (not stdlib `logging.getLogger()`). structlog uses keyword args, not printf-style. `setup_otel()` / `setup_structlog()` called exactly once at entry point (`__main__.py`).
 - **Data models**: Pydantic `BaseModel` by default for structured records. Keyword args only.
 - **No mutable globals**: Wire deps through constructor args or framework DI.
+- **Python interpreter**: Always invoke `venv/bin/python` (not bare `python`, not `uv run python`).
 - **Tests**: Named `TESTEE_test.py`. Run with `make test`.
 - **dotenv**: Always `load_dotenv(override=False)`.
 - **Formatting**: ruff (line-length 100, select E/F/I/N/W/UP).
