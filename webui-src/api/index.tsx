@@ -13,6 +13,7 @@ import type { Client } from './generated/client';
 import { client as defaultClient } from './generated/client.gen';
 
 export * from './generated';
+export * from './events';
 export type { Client } from './generated/client';
 
 // Context: lets a subtree override the HTTP client (tests, mocks, alternate

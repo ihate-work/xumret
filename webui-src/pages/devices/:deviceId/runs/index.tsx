@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from 'primereact/button';
 import { Card } from 'primereact/card';
@@ -12,16 +12,15 @@ import { Tag } from 'primereact/tag';
 import { Link, useLocation } from 'wouter';
 
 import {
+  listRunsApiRunsGet,
+  reapRunApiRunsSlugReapPost,
+  stopRunApiRunsSlugStopPost,
+  submitRunApiRunsPost,
+  useApi,
+  useRunEvents,
   type RunRecord,
   type RunStatus,
-  isTerminal,
-  listRuns,
-  reapRun,
-  stopRun,
-  subscribeRunEvents,
-  submitRun,
-  SubmitConflictError,
-} from '../../../../util/runs';
+} from '~/api';
 
 const statusSeverity: Record<RunStatus, 'success' | 'info' | 'warning' | 'danger' | 'secondary'> = {
   completed: 'success',
@@ -29,50 +28,48 @@ const statusSeverity: Record<RunStatus, 'success' | 'info' | 'warning' | 'danger
   pending: 'warning',
   failed: 'danger',
   cancelled: 'secondary',
+  timed_out: 'danger',
 };
+
+const TERMINAL: ReadonlyArray<RunStatus> = ['completed', 'failed', 'cancelled', 'timed_out'];
+const isTerminal = (s: RunStatus) => TERMINAL.includes(s);
 
 export function DeviceRunsPage({ params }: { params: { deviceId: string } }) {
   const [, navigate] = useLocation();
-  const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [submitOpen, setSubmitOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refreshing = useRef(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
-    if (refreshing.current) return;
-    refreshing.current = true;
-    try {
-      setRuns(await listRuns());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      refreshing.current = false;
-    }
-  }, []);
+  const { data: runs, error: fetchErr, mutate } = useApi(listRunsApiRunsGet);
 
-  useEffect(() => {
-    refresh();
-    const close = subscribeRunEvents({ onState: () => refresh() });
-    return close;
-  }, [refresh]);
+  useRunEvents(() => mutate());
 
   const onStop = useCallback(async (slug: string) => {
-    try { await stopRun(slug); await refresh(); }
-    catch (e) { setError(String(e)); }
-  }, [refresh]);
+    try {
+      await stopRunApiRunsSlugStopPost({ path: { slug }, throwOnError: true });
+      await mutate();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [mutate]);
 
   const onReap = useCallback(async (slug: string) => {
-    try { await reapRun(slug); await refresh(); }
-    catch (e) { setError(String(e)); }
-  }, [refresh]);
+    try {
+      await reapRunApiRunsSlugReapPost({ path: { slug }, throwOnError: true });
+      await mutate();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [mutate]);
+
+  const shownError = error ?? (fetchErr ? String(fetchErr) : null);
 
   return (
     <Card
       title="Runs"
       subTitle={<Link to={`/devices/${params.deviceId}`}>&larr; device</Link>}
     >
-      {error && (
-        <Message severity="error" text={error} style={{ marginBottom: '0.75rem' }} />
+      {shownError && (
+        <Message severity="error" text={shownError} style={{ marginBottom: '0.75rem' }} />
       )}
 
       <div style={{ marginBottom: '0.75rem' }}>
@@ -85,7 +82,7 @@ export function DeviceRunsPage({ params }: { params: { deviceId: string } }) {
       </div>
 
       <DataTable
-        value={runs}
+        value={runs ?? []}
         emptyMessage="No runs yet."
         selectionMode="single"
         onRowSelect={(e) => navigate(`/devices/${params.deviceId}/runs/${e.data.slug}`)}
@@ -123,7 +120,7 @@ export function DeviceRunsPage({ params }: { params: { deviceId: string } }) {
       <SubmitDialog
         open={submitOpen}
         onClose={() => setSubmitOpen(false)}
-        onSubmitted={() => { setSubmitOpen(false); refresh(); }}
+        onSubmitted={() => { setSubmitOpen(false); mutate(); }}
       />
     </Card>
   );
@@ -138,7 +135,6 @@ function SubmitDialog({
 }) {
   const [name, setName] = useState('echo');
   const [argv, setArgv] = useState('echo hello');
-  const [daemon, setDaemon] = useState(false);
   const [slug, setSlug] = useState('');
   const [mutex, setMutex] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -150,22 +146,24 @@ function SubmitDialog({
       setErr('argv is required');
       return;
     }
-    try {
-      await submitRun({
-        name: name || 'unnamed',
-        steps: [{ argv: parts }],
-        connections: [],
-        daemon,
-        run_option: { slug: slug || null, mutex_by_slug: mutex },
-      });
-      onSubmitted();
-    } catch (e) {
-      if (e instanceof SubmitConflictError) {
+    const result = await submitRunApiRunsPost({
+      body: {
+        phone_command: {
+          name: name || 'unnamed',
+          steps: [{ argv: parts }],
+          run_option: { slug: slug || undefined, mutex_by_slug: mutex },
+        },
+      },
+    });
+    if (result.error) {
+      if (result.response?.status === 409) {
         setErr('A run with this slug is already active; stop or reap it first.');
       } else {
-        setErr(String(e));
+        setErr(JSON.stringify(result.error));
       }
+      return;
     }
+    onSubmitted();
   };
 
   return (
@@ -176,9 +174,6 @@ function SubmitDialog({
         </Field>
         <Field label="argv">
           <InputText value={argv} onChange={(e) => setArgv(e.target.value)} />
-        </Field>
-        <Field label="Daemon">
-          <InputSwitch checked={daemon} onChange={(e) => setDaemon(!!e.value)} />
         </Field>
 
         <details>

@@ -11,13 +11,20 @@
  * here so cheap polls (battery, wifi) are cached server-side.
  */
 
-import type { PhoneCommand } from './commands';
-import { getRun, submitRun, isTerminal, type RunRecord } from './runs';
+import {
+  getRunApiRunsSlugGet,
+  submitRunApiRunsPost,
+  type PhoneCommandInput,
+  type RunRecord,
+  type RunStatus,
+} from '~/api';
 
 const POLL_INTERVAL_MS = 200;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const TERMINAL: ReadonlyArray<RunStatus> = ['completed', 'failed', 'cancelled', 'timed_out'];
+const isTerminal = (s: RunStatus) => TERMINAL.includes(s);
 
-function captureCommand(name: string, argv: string[]): PhoneCommand {
+function captureCommand(name: string, argv: string[]): PhoneCommandInput {
   return {
     name,
     steps: [{ argv, stdout_stream: { mode: 'lines', capture: true } }],
@@ -27,7 +34,9 @@ function captureCommand(name: string, argv: string[]): PhoneCommand {
 async function waitForTerminal(slug: string, timeoutMs: number): Promise<RunRecord> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const rec = await getRun(slug);
+    const { data: rec } = await getRunApiRunsSlugGet({
+      path: { slug }, throwOnError: true,
+    });
     if (isTerminal(rec.status)) return rec;
     if (Date.now() > deadline) {
       throw new Error(`run ${slug} did not finish within ${timeoutMs}ms`);
@@ -36,14 +45,22 @@ async function waitForTerminal(slug: string, timeoutMs: number): Promise<RunReco
   }
 }
 
-async function runAndParse<T>(name: string, argv: string[]): Promise<T> {
-  const initial = await submitRun(captureCommand(name, argv));
+async function runOnce(name: string, argv: string[]): Promise<RunRecord> {
+  const { data: initial } = await submitRunApiRunsPost({
+    body: { phone_command: captureCommand(name, argv) },
+    throwOnError: true,
+  });
   const rec = isTerminal(initial.status)
     ? initial
     : await waitForTerminal(initial.slug, DEFAULT_TIMEOUT_MS);
   if (rec.status !== 'completed') {
     throw new Error(`${name} ${rec.status}${rec.error ? `: ${rec.error}` : ''}`);
   }
+  return rec;
+}
+
+async function runAndParse<T>(name: string, argv: string[]): Promise<T> {
+  const rec = await runOnce(name, argv);
   const tail = rec.steps[0]?.stdout_tail ?? '';
   if (!tail) {
     throw new Error(`${name} produced no stdout`);
@@ -56,13 +73,7 @@ async function runAndParse<T>(name: string, argv: string[]): Promise<T> {
 }
 
 async function runAndCaptureRaw(name: string, argv: string[]): Promise<string> {
-  const initial = await submitRun(captureCommand(name, argv));
-  const rec = isTerminal(initial.status)
-    ? initial
-    : await waitForTerminal(initial.slug, DEFAULT_TIMEOUT_MS);
-  if (rec.status !== 'completed') {
-    throw new Error(`${name} ${rec.status}${rec.error ? `: ${rec.error}` : ''}`);
-  }
+  const rec = await runOnce(name, argv);
   // Trim trailing newline appended by the run-output joiner.
   return (rec.steps[0]?.stdout_tail ?? '').replace(/\n$/, '');
 }
