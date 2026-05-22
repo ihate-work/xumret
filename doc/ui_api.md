@@ -1,58 +1,135 @@
-# UI API (draft)
+# WebUI ↔ API
 
-Prefix: `/api/ui_v0/`
+How the FastAPI surface, the OpenAPI spec, the generated TypeScript SDK, and
+the React hooks fit together.
 
-See [`design-process-management.md`](design-process-management.md) for the semantics behind `runs`,
-slugs, and reap. This file is the route inventory; `design-process-management.md` is the
-source of truth for behaviour.
-
-## Devices
+## The pipeline
 
 ```
-GET    /api/ui_v0/devices
-GET    /api/ui_v0/devices/:device_id
+FastAPI routes (src/xumret/server/api/)
+        │  `make openapi`  (venv/bin/python -m xumret dev-openapi)
+        ▼
+webui-src/api/openapi.yaml          ← committed; source of truth
+        │  npm run generate:api  (@hey-api/openapi-ts)
+        ▼
+webui-src/api/generated/            ← committed; do NOT import from directly
+  ├── sdk.gen.ts                    typed fetch wrappers per operation
+  ├── types.gen.ts                  request/response data types
+  ├── zod.gen.ts                    runtime schemas (`zDevice`, `zRunRecord`, …)
+  ├── client.gen.ts + client/       fetch client + helpers
+  └── index.ts                      barrel (re-exported from ../index.tsx)
+        │
+        ▼
+webui-src/api/index.tsx             ← public surface
+  • re-exports * from ./generated and ./events
+  • exposes useApi, useRunEvents, ApiProvider
+        │
+        ▼
+webui-src/pages/**, webui-src/util/**   ← consumers import from '~/api' only
 ```
 
-## Device state
+`make openapi` runs both stages (regen YAML + regen SDK). CI typechecks the
+result via `npm run typecheck` in `.github/workflows/check.yaml`.
 
+## Adding or changing an endpoint
+
+1. Edit the FastAPI route / Pydantic model.
+2. Run `make openapi`. Both `webui-src/api/openapi.yaml` and
+   `webui-src/api/generated/**` are regenerated and meant to be committed.
+3. Use the new function/type from `~/api` in components.
+
+No manual edits to anything under `webui-src/api/generated/`.
+
+## Generator config
+
+`openapi-ts.config.ts` at repo root. Plugins:
+
+- `@hey-api/typescript` — types
+- `@hey-api/sdk` with `operations: { strategy: 'flat' }` — tree-shakable
+  standalone functions (no class containers)
+- `@hey-api/client-fetch` — fetch-based runtime
+- `zod` — runtime schemas
+
+Plugin defaults are dropped when `plugins:` is set explicitly, so the
+typescript and sdk plugins must stay in the list even though they'd be
+default if omitted.
+
+A 14-day npm cooldown (`min-release-age=14` in `~/.npmrc`) caps how new the
+generator versions can be — same supply-chain posture as the Python deps.
+
+## Frontend hooks
+
+### `useApi(fn, args?, config?)`
+
+Generic SWR-backed hook. Pass an SDK function and the args bag; the hook
+injects the client, sets `throwOnError: true`, and unwraps `.data`. Cache key
+is `[fn.name, args]` — endpoint identity comes from the function reference,
+not from URL strings at the call site.
+
+```tsx
+const { data } = useApi(listDevicesApiDevicesGet);
+const { data } = useApi(getRunApiRunsSlugGet, { path: { slug } });
+const { data } = useApi(getRunApiRunsSlugGet, slug ? { path: { slug } } : null);
+//                                            ^ null disables the fetch
 ```
-GET    /api/ui_v0/devices/:device_id/state
+
+`args` mirrors the SDK function's parameter shape (path / query / body /
+headers), minus `client` and `throwOnError` which the hook owns.
+
+### `useRunEvents(onState)`
+
+Subscribes to `/api/events` (SSE) for the lifetime of the component and
+calls `onState` on every `run_state` event. The latest callback is always
+invoked — the EventSource isn't re-opened when the callback identity
+changes. Typical pattern: revalidate a `useApi` result via `mutate()`.
+
+```tsx
+const { data: run, mutate } = useApi(getRunStateApiRunsSlugStateGet, { path: { slug } });
+useRunEvents((ev) => { if (ev.slug === slug) mutate(); });
 ```
 
-## Runs
+SSE isn't covered by the SDK (the Hey API generator can't model event
+streams) — `webui-src/api/events.ts` is the hand-written wrapper.
 
-A run is a `PhoneCommand` being (or having been) executed. The `slug` is
-the run identifier, scoped to the device. See `design-process-management.md`.
+### Mutations (POST / PUT)
 
-```
-POST   /api/ui_v0/devices/:device_id/runs                  # submit
-GET    /api/ui_v0/devices/:device_id/runs                  # list
-GET    /api/ui_v0/devices/:device_id/runs/:slug            # slim record
-GET    /api/ui_v0/devices/:device_id/runs/:slug/state      # transitions + output buffers
-POST   /api/ui_v0/devices/:device_id/runs/:slug/stop       # cancel a live run
-POST   /api/ui_v0/devices/:device_id/runs/:slug/reap       # reap a terminal run
-```
+Call SDK functions directly from event handlers. SWR's `mutate()` from a
+prior `useApi` result invalidates the cache after a mutation:
 
-Verbs: GET (safe), PUT (idempotent upsert), POST (idempotent named action).
-DELETE is not used.
-
-## Events
-
-```
-GET    /api/ui_v0/devices/:device_id/events
+```ts
+await stopRunApiRunsSlugStopPost({ path: { slug }, throwOnError: true });
+await mutate();
 ```
 
-SSE stream for the device. Two event categories:
+For error inspection (e.g., distinguishing HTTP 409 conflict), drop
+`throwOnError: true` and read `result.response.status` / `result.error`.
 
-- `event: run_state` — per-run lifecycle deltas (created, step_started,
-  step_exited, running, completed, failed, cancelled, daemon_*).
-- `event: run_output` — incremental stdout/stderr per process. Payload
-  shape is driven by the step's `StreamConfig` (lines vs. binary) and
-  back-pressure setting:
-  `{slug, step_index, fd, lines?: str[], bytes?: str (base64),
-  dropped_lines?: int, dropped_bytes?: int}`. Drop counters are deltas
-  since the previous event for that fd.
+### `<ApiProvider client={...}>`
 
-Late subscribers fetch `…/runs/:slug/state` for a current snapshot, then
-attach to SSE for deltas. The client merges snapshot + deltas
-event-sourcing-style; no in-band snapshot event is sent.
+Optional. Overrides the client used by `useApi` within a subtree — useful
+for tests, mocks, or alternate base URLs. Without it, `useApi` falls back
+to the generated singleton at `webui-src/api/generated/client.gen.ts`.
+
+## Zod schemas
+
+Every type has a matching `z*` schema in `webui-src/api/generated/zod.gen.ts`
+(re-exported from `~/api`). Use them for runtime validation:
+
+```ts
+import { zRunRecord } from '~/api';
+const parsed = zRunRecord.safeParse(payload);
+```
+
+The SDK does not auto-validate. To enable, set `validator: { response: 'zod' }`
+on `@hey-api/sdk` in `openapi-ts.config.ts`.
+
+## Known gaps
+
+- **SSE typing.** `run_state` event payloads are typed as the union of
+  `RunState*` records from the spec. `run_output` (per-step stdout/stderr
+  deltas) is emitted by the server but not in the OpenAPI spec, so it's
+  not consumed by the WebUI. Add to the Pydantic models + regen to wire it.
+- **SWR plugin.** The `@hey-api/openapi-ts` `'swr'` plugin (v0.97.1) emits
+  `import type useSWR` and drops path params. We hand-wrote `useApi`
+  instead. Revisit once a fixed version (≥0.97.2) clears the 14-day npm
+  cooldown — see `doc/wits.md`.
