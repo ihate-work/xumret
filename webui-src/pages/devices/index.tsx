@@ -4,7 +4,7 @@ import { Column } from 'primereact/column';
 import { Message } from 'primereact/message';
 import { ProgressSpinner } from 'primereact/progressspinner';
 import { useLocation } from 'wouter';
-import { listDevicesApiDevicesGet, useApi } from '~/api';
+import { listDevicesApiDevicesGet, useApi } from '~/_api';
 
 export function DevicesPage() {
   const [, navigate] = useLocation();

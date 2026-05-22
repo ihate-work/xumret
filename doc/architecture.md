@@ -103,7 +103,7 @@ WebUI ──HTTP──>  │  api ──Depends──> SingleMain ──> LocalE
 The HTTP API served by `api/` is the same in both modes. The WebUI does not know which mode is running.
 
 Source of truth is the FastAPI app; the OpenAPI spec is exported to
-`webui-src/api/openapi.yaml` via `make openapi`. Current shape (devices,
+`webui-src/_api/openapi.yaml` via `make openapi`. Current shape (devices,
 runs lifecycle, SSE) and the frontend SDK pipeline are documented in
 [`ui_api.md`](ui_api.md).
 

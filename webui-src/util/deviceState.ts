@@ -17,7 +17,7 @@ import {
   type PhoneCommandInput,
   type RunRecord,
   type RunStatus,
-} from '~/api';
+} from '~/_api';
 
 const POLL_INTERVAL_MS = 200;
 const DEFAULT_TIMEOUT_MS = 15_000;

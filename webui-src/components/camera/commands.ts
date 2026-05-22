@@ -1,4 +1,4 @@
-import type { PhoneCommandInput } from '~/api';
+import type { PhoneCommandInput } from '~/_api';
 
 /** termux-camera-info — list available cameras and their capabilities. */
 export function cameraInfo(): PhoneCommandInput {

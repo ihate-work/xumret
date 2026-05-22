@@ -9,10 +9,10 @@ the React hooks fit together.
 FastAPI routes (src/xumret/server/api/)
         │  `make openapi`  (venv/bin/python -m xumret dev-openapi)
         ▼
-webui-src/api/openapi.yaml          ← committed; source of truth
+webui-src/_api/openapi.yaml          ← committed; source of truth
         │  npm run generate:api  (@hey-api/openapi-ts)
         ▼
-webui-src/api/generated/            ← committed; do NOT import from directly
+webui-src/_api/generated/            ← committed; do NOT import from directly
   ├── sdk.gen.ts                    typed fetch wrappers per operation
   ├── types.gen.ts                  request/response data types
   ├── zod.gen.ts                    runtime schemas (`zDevice`, `zRunRecord`, …)
@@ -20,12 +20,12 @@ webui-src/api/generated/            ← committed; do NOT import from directly
   └── index.ts                      barrel (re-exported from ../index.tsx)
         │
         ▼
-webui-src/api/index.tsx             ← public surface
+webui-src/_api/index.tsx             ← public surface
   • re-exports * from ./generated and ./events
   • exposes useApi, useRunEvents, ApiProvider
         │
         ▼
-webui-src/pages/**, webui-src/util/**   ← consumers import from '~/api' only
+webui-src/pages/**, webui-src/util/**   ← consumers import from '~/_api' only
 ```
 
 `make openapi` runs both stages (regen YAML + regen SDK). CI typechecks the
@@ -34,11 +34,11 @@ result via `npm run typecheck` in `.github/workflows/check.yaml`.
 ## Adding or changing an endpoint
 
 1. Edit the FastAPI route / Pydantic model.
-2. Run `make openapi`. Both `webui-src/api/openapi.yaml` and
-   `webui-src/api/generated/**` are regenerated and meant to be committed.
-3. Use the new function/type from `~/api` in components.
+2. Run `make openapi`. Both `webui-src/_api/openapi.yaml` and
+   `webui-src/_api/generated/**` are regenerated and meant to be committed.
+3. Use the new function/type from `~/_api` in components.
 
-No manual edits to anything under `webui-src/api/generated/`.
+No manual edits to anything under `webui-src/_api/generated/`.
 
 ## Generator config
 
@@ -89,7 +89,7 @@ useRunEvents((ev) => { if (ev.slug === slug) mutate(); });
 ```
 
 SSE isn't covered by the SDK (the Hey API generator can't model event
-streams) — `webui-src/api/events.ts` is the hand-written wrapper.
+streams) — `webui-src/_api/events.ts` is the hand-written wrapper.
 
 ### Mutations (POST / PUT)
 
@@ -108,15 +108,15 @@ For error inspection (e.g., distinguishing HTTP 409 conflict), drop
 
 Optional. Overrides the client used by `useApi` within a subtree — useful
 for tests, mocks, or alternate base URLs. Without it, `useApi` falls back
-to the generated singleton at `webui-src/api/generated/client.gen.ts`.
+to the generated singleton at `webui-src/_api/generated/client.gen.ts`.
 
 ## Zod schemas
 
-Every type has a matching `z*` schema in `webui-src/api/generated/zod.gen.ts`
-(re-exported from `~/api`). Use them for runtime validation:
+Every type has a matching `z*` schema in `webui-src/_api/generated/zod.gen.ts`
+(re-exported from `~/_api`). Use them for runtime validation:
 
 ```ts
-import { zRunRecord } from '~/api';
+import { zRunRecord } from '~/_api';
 const parsed = zRunRecord.safeParse(payload);
 ```
 

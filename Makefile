@@ -34,10 +34,10 @@ webui-dev: deps
 webui-prod-build: deps
 	npm run build
 
-# Export the FastAPI OpenAPI schema to webui-src/api/openapi.yaml
-# and regenerate the TypeScript client in webui-src/api/generated/
+# Export the FastAPI OpenAPI schema to webui-src/_api/openapi.yaml
+# and regenerate the TypeScript client in webui-src/_api/generated/
 openapi: deps
-	venv/bin/python -m xumret dev-openapi -o webui-src/api/openapi.yaml
+	venv/bin/python -m xumret dev-openapi -o webui-src/_api/openapi.yaml
 	npm run generate:api
 
 # Run client connecting to localhost (for local dev)

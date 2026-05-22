@@ -13,7 +13,7 @@ import {
   useApi,
   useRunEvents,
   type RunStatus,
-} from '~/api';
+} from '~/_api';
 
 const statusSeverity: Record<RunStatus, 'success' | 'info' | 'warning' | 'danger' | 'secondary'> = {
   completed: 'success',
