@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from 'primereact/button';
-import { Card } from 'primereact/card';
+import { CardBoundary } from '~/components/CardBoundary';
 import { Column } from 'primereact/column';
 import { DataTable } from 'primereact/datatable';
 import { Dialog } from 'primereact/dialog';
@@ -64,7 +64,7 @@ export function DeviceRunsPage({ params }: { params: { deviceId: string } }) {
   const shownError = error ?? (fetchErr ? String(fetchErr) : null);
 
   return (
-    <Card
+    <CardBoundary
       title="Runs"
       subTitle={<Link to={`/devices/${params.deviceId}`}>&larr; device</Link>}
     >
@@ -122,7 +122,7 @@ export function DeviceRunsPage({ params }: { params: { deviceId: string } }) {
         onClose={() => setSubmitOpen(false)}
         onSubmitted={() => { setSubmitOpen(false); mutate(); }}
       />
-    </Card>
+    </CardBoundary>
   );
 }
 

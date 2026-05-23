@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from 'primereact/button';
-import { Card } from 'primereact/card';
+import { CardBoundary } from '~/components/CardBoundary';
 import { Message } from 'primereact/message';
 import { Panel } from 'primereact/panel';
 import { Tag } from 'primereact/tag';
@@ -63,16 +63,16 @@ export function DeviceRunPage({
 
   if (!run) {
     return (
-      <Card title={`Run: ${slug}`}>
+      <CardBoundary title={`Run: ${slug}`}>
         {shownError
           ? <Message severity="error" text={shownError} />
           : <span>Loading…</span>}
-      </Card>
+      </CardBoundary>
     );
   }
 
   return (
-    <Card
+    <CardBoundary
       title={<span>Run <code>{run.slug}</code></span>}
       subTitle={<Link to={`/devices/${deviceId}/runs`}>&larr; runs</Link>}
     >
@@ -161,6 +161,6 @@ export function DeviceRunPage({
           ))}
         </ol>
       </Panel>
-    </Card>
+    </CardBoundary>
   );
 }

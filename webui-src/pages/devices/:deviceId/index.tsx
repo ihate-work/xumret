@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Card } from 'primereact/card';
+import { CardBoundary } from '~/components/CardBoundary';
 import { Column } from 'primereact/column';
 import { DataTable } from 'primereact/datatable';
 import { Message } from 'primereact/message';
@@ -72,13 +72,13 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <Card
+      <CardBoundary
         title={`Device: ${params.deviceId}`}
         subTitle={<Link to="/devices">&larr; all devices</Link>}
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        <Card title="Battery">
+        <CardBoundary title="Battery">
           <SliceBody slice={battery} render={(b) => (
             <>
               <Field label="Level">{b.percentage}%</Field>
@@ -88,9 +88,9 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               <Field label="Temperature">{b.temperature} °C</Field>
             </>
           )} />
-        </Card>
+        </CardBoundary>
 
-        <Card title="WiFi">
+        <CardBoundary title="WiFi">
           <SliceBody slice={wifi} render={(w) => (
             <>
               <Field label="SSID">{w.ssid}</Field>
@@ -100,9 +100,9 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               <Field label="Frequency">{w.frequency_mhz} MHz</Field>
             </>
           )} />
-        </Card>
+        </CardBoundary>
 
-        <Card title="Location">
+        <CardBoundary title="Location">
           <SliceBody slice={location} render={(l) => (
             <>
               <Field label="Latitude">{l.latitude}</Field>
@@ -112,9 +112,9 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               <Field label="Provider">{l.provider}</Field>
             </>
           )} />
-        </Card>
+        </CardBoundary>
 
-        <Card title="Telephony">
+        <CardBoundary title="Telephony">
           <SliceBody slice={telephony} render={(t) => (
             <>
               <Field label="Operator">{t.network_operator_name}</Field>
@@ -124,10 +124,10 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               <Field label="Phone type">{t.phone_type}</Field>
             </>
           )} />
-        </Card>
+        </CardBoundary>
       </div>
 
-      <Card title="SMS">
+      <CardBoundary title="SMS">
         <SliceBody slice={sms} render={(rows) => (
           <DataTable value={rows} size="small">
             <Column
@@ -142,19 +142,19 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
             <Column field="received" header="Time" />
           </DataTable>
         )} />
-      </Card>
+      </CardBoundary>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        <Card title="Contacts">
+        <CardBoundary title="Contacts">
           <SliceBody slice={contacts} render={(rows) => (
             <DataTable value={rows} size="small">
               <Column field="name" header="Name" />
               <Column field="number" header="Number" />
             </DataTable>
           )} />
-        </Card>
+        </CardBoundary>
 
-        <Card title="Call Log">
+        <CardBoundary title="Call Log">
           <SliceBody slice={callLog} render={(rows) => (
             <DataTable value={rows} size="small">
               <Column field="name" header="Name" />
@@ -167,10 +167,10 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               <Column header="Duration" body={(row) => `${row.duration}s`} />
             </DataTable>
           )} />
-        </Card>
+        </CardBoundary>
       </div>
 
-      <Card title="Cameras">
+      <CardBoundary title="Cameras">
         <SliceBody slice={cameras} render={(rows) => (
           <DataTable value={rows} size="small">
             <Column field="id" header="ID" />
@@ -184,10 +184,10 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
             />
           </DataTable>
         )} />
-      </Card>
+      </CardBoundary>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        <Card title="Clipboard">
+        <CardBoundary title="Clipboard">
           <SliceBody slice={clipboard} render={(c) => (
             <div style={{
               padding: '0.5rem',
@@ -198,16 +198,16 @@ export function DevicePage({ params }: { params: { deviceId: string } }) {
               {c}
             </div>
           )} />
-        </Card>
+        </CardBoundary>
 
-        <Card title="Volume">
+        <CardBoundary title="Volume">
           <SliceBody slice={volume} render={(rows) => (
             <DataTable value={rows} size="small">
               <Column field="stream" header="Stream" />
               <Column header="Level" body={(row) => `${row.volume} / ${row.max_volume}`} />
             </DataTable>
           )} />
-        </Card>
+        </CardBoundary>
       </div>
     </div>
   );
