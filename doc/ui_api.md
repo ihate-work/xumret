@@ -120,8 +120,17 @@ import { zRunRecord } from '~/_api';
 const parsed = zRunRecord.safeParse(payload);
 ```
 
-The SDK does not auto-validate. To enable, set `validator: { response: 'zod' }`
-on `@hey-api/sdk` in `openapi-ts.config.ts`.
+The SDK auto-validates every response against the generated zod schema —
+`@hey-api/sdk` is configured with `validator: { response: 'zod' }` in
+`openapi-ts.config.ts`, so each SDK function calls `z*Response.parseAsync(data)`
+before resolving. A response that doesn't match the OpenAPI schema rejects the
+promise with a `ZodError`; with `throwOnError: true` (the default for `useApi`)
+it surfaces as the SWR `error`.
+
+Validation only covers the API contract (FastAPI Pydantic models). Opaque
+payloads inside `Run.steps[].stdout_tail` — the raw JSON emitted by
+`termux-*` commands on the device — are *not* in the spec and are not
+validated by zod. See [doc/wits.md](wits.md) for the device-side gap.
 
 ## Known gaps
 

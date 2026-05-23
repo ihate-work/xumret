@@ -3,6 +3,7 @@
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
 import type { EventStreamApiEventsGetData, EventStreamApiEventsGetResponses, GetRunApiRunsSlugGetData, GetRunApiRunsSlugGetErrors, GetRunApiRunsSlugGetResponses, GetRunStateApiRunsSlugStateGetData, GetRunStateApiRunsSlugStateGetErrors, GetRunStateApiRunsSlugStateGetResponses, ListDevicesApiDevicesGetData, ListDevicesApiDevicesGetResponses, ListRunsApiRunsGetData, ListRunsApiRunsGetResponses, ReapRunApiRunsSlugReapPostData, ReapRunApiRunsSlugReapPostErrors, ReapRunApiRunsSlugReapPostResponses, StopRunApiRunsSlugStopPostData, StopRunApiRunsSlugStopPostErrors, StopRunApiRunsSlugStopPostResponses, SubmitRunApiRunsPostData, SubmitRunApiRunsPostErrors, SubmitRunApiRunsPostResponses } from './types.gen';
+import { zGetRunApiRunsSlugGetResponse, zGetRunStateApiRunsSlugStateGetResponse, zListDevicesApiDevicesGetResponse, zListRunsApiRunsGetResponse, zReapRunApiRunsSlugReapPostResponse, zStopRunApiRunsSlugStopPostResponse, zSubmitRunApiRunsPostResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -21,17 +22,26 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 /**
  * List Devices
  */
-export const listDevicesApiDevicesGet = <ThrowOnError extends boolean = false>(options?: Options<ListDevicesApiDevicesGetData, ThrowOnError>) => (options?.client ?? client).get<ListDevicesApiDevicesGetResponses, unknown, ThrowOnError>({ url: '/api/devices', ...options });
+export const listDevicesApiDevicesGet = <ThrowOnError extends boolean = false>(options?: Options<ListDevicesApiDevicesGetData, ThrowOnError>) => (options?.client ?? client).get<ListDevicesApiDevicesGetResponses, unknown, ThrowOnError>({
+    responseValidator: async (data) => await zListDevicesApiDevicesGetResponse.parseAsync(data),
+    url: '/api/devices',
+    ...options
+});
 
 /**
  * List Runs
  */
-export const listRunsApiRunsGet = <ThrowOnError extends boolean = false>(options?: Options<ListRunsApiRunsGetData, ThrowOnError>) => (options?.client ?? client).get<ListRunsApiRunsGetResponses, unknown, ThrowOnError>({ url: '/api/runs', ...options });
+export const listRunsApiRunsGet = <ThrowOnError extends boolean = false>(options?: Options<ListRunsApiRunsGetData, ThrowOnError>) => (options?.client ?? client).get<ListRunsApiRunsGetResponses, unknown, ThrowOnError>({
+    responseValidator: async (data) => await zListRunsApiRunsGetResponse.parseAsync(data),
+    url: '/api/runs',
+    ...options
+});
 
 /**
  * Submit Run
  */
 export const submitRunApiRunsPost = <ThrowOnError extends boolean = false>(options: Options<SubmitRunApiRunsPostData, ThrowOnError>) => (options.client ?? client).post<SubmitRunApiRunsPostResponses, SubmitRunApiRunsPostErrors, ThrowOnError>({
+    responseValidator: async (data) => await zSubmitRunApiRunsPostResponse.parseAsync(data),
     url: '/api/runs',
     ...options,
     headers: {
@@ -43,22 +53,38 @@ export const submitRunApiRunsPost = <ThrowOnError extends boolean = false>(optio
 /**
  * Get Run
  */
-export const getRunApiRunsSlugGet = <ThrowOnError extends boolean = false>(options: Options<GetRunApiRunsSlugGetData, ThrowOnError>) => (options.client ?? client).get<GetRunApiRunsSlugGetResponses, GetRunApiRunsSlugGetErrors, ThrowOnError>({ url: '/api/runs/{slug}', ...options });
+export const getRunApiRunsSlugGet = <ThrowOnError extends boolean = false>(options: Options<GetRunApiRunsSlugGetData, ThrowOnError>) => (options.client ?? client).get<GetRunApiRunsSlugGetResponses, GetRunApiRunsSlugGetErrors, ThrowOnError>({
+    responseValidator: async (data) => await zGetRunApiRunsSlugGetResponse.parseAsync(data),
+    url: '/api/runs/{slug}',
+    ...options
+});
 
 /**
  * Get Run State
  */
-export const getRunStateApiRunsSlugStateGet = <ThrowOnError extends boolean = false>(options: Options<GetRunStateApiRunsSlugStateGetData, ThrowOnError>) => (options.client ?? client).get<GetRunStateApiRunsSlugStateGetResponses, GetRunStateApiRunsSlugStateGetErrors, ThrowOnError>({ url: '/api/runs/{slug}/state', ...options });
+export const getRunStateApiRunsSlugStateGet = <ThrowOnError extends boolean = false>(options: Options<GetRunStateApiRunsSlugStateGetData, ThrowOnError>) => (options.client ?? client).get<GetRunStateApiRunsSlugStateGetResponses, GetRunStateApiRunsSlugStateGetErrors, ThrowOnError>({
+    responseValidator: async (data) => await zGetRunStateApiRunsSlugStateGetResponse.parseAsync(data),
+    url: '/api/runs/{slug}/state',
+    ...options
+});
 
 /**
  * Stop Run
  */
-export const stopRunApiRunsSlugStopPost = <ThrowOnError extends boolean = false>(options: Options<StopRunApiRunsSlugStopPostData, ThrowOnError>) => (options.client ?? client).post<StopRunApiRunsSlugStopPostResponses, StopRunApiRunsSlugStopPostErrors, ThrowOnError>({ url: '/api/runs/{slug}/stop', ...options });
+export const stopRunApiRunsSlugStopPost = <ThrowOnError extends boolean = false>(options: Options<StopRunApiRunsSlugStopPostData, ThrowOnError>) => (options.client ?? client).post<StopRunApiRunsSlugStopPostResponses, StopRunApiRunsSlugStopPostErrors, ThrowOnError>({
+    responseValidator: async (data) => await zStopRunApiRunsSlugStopPostResponse.parseAsync(data),
+    url: '/api/runs/{slug}/stop',
+    ...options
+});
 
 /**
  * Reap Run
  */
-export const reapRunApiRunsSlugReapPost = <ThrowOnError extends boolean = false>(options: Options<ReapRunApiRunsSlugReapPostData, ThrowOnError>) => (options.client ?? client).post<ReapRunApiRunsSlugReapPostResponses, ReapRunApiRunsSlugReapPostErrors, ThrowOnError>({ url: '/api/runs/{slug}/reap', ...options });
+export const reapRunApiRunsSlugReapPost = <ThrowOnError extends boolean = false>(options: Options<ReapRunApiRunsSlugReapPostData, ThrowOnError>) => (options.client ?? client).post<ReapRunApiRunsSlugReapPostResponses, ReapRunApiRunsSlugReapPostErrors, ThrowOnError>({
+    responseValidator: async (data) => await zReapRunApiRunsSlugReapPostResponse.parseAsync(data),
+    url: '/api/runs/{slug}/reap',
+    ...options
+});
 
 /**
  * Event Stream

@@ -12,6 +12,7 @@
     "generate:api": "openapi-ts"
   },
   "dependencies": {
+    "debug": "^4.4.3",
     "primeicons": "^7.0.0",
     "primereact": "^10.9.7",
     "react": "^19.1.0",

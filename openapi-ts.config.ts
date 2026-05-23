@@ -11,6 +11,7 @@ export default defineConfig({
     {
       name: '@hey-api/sdk',
       operations: { strategy: 'flat' },
+      validator: { response: 'zod' },
     },
     '@hey-api/client-fetch',
     'zod',
