@@ -3,15 +3,20 @@
 Holds `slug → Run`. Implements the submit decision matrix
 (see `doc/design-process-management.md`):
 
-| slug   | mutex_by_slug | live? | terminal-unreaped? | result        |
-|--------|---------------|-------|--------------------|---------------|
-| None   | n/a           | n/a   | n/a                | new run       |
-| "X"    | False         | yes   | -                  | join existing |
-| "X"    | False         | no    | yes                | 409           |
-| "X"    | False         | no    | no                 | new run       |
-| "X"    | True          | yes   | -                  | 409           |
-| "X"    | True          | no    | yes                | 409           |
-| "X"    | True          | no    | no                 | new run       |
+| slug   | mutex_by_slug | cache_for | existing run        | result               |
+|--------|---------------|-----------|---------------------|----------------------|
+| None   | n/a           | n/a       | n/a                 | new run              |
+| "X"    | any           | any       | none                | new run              |
+| "X"    | False         | any       | live                | join existing        |
+| "X"    | True          | any       | live                | 409 (live-mutex)     |
+| "X"    | any           | None      | terminal (any)      | 409 (terminal-unreaped) |
+| "X"    | any           | N         | terminal, failed*   | 409 (terminal-unreaped) |
+| "X"    | any           | N         | terminal, completed, age ≤ N | return cached |
+| "X"    | any           | N         | terminal, completed, age > N | implicit reap → new run |
+
+*"failed" here covers `failed`, `cancelled`, and `timed_out` — every terminal
+status except `completed`. Failures are never cached; the client must
+acknowledge them with an explicit reap.
 
 Phone-wide subscribers see every event from every run via a sync listener
 hook on each Run, so the broadcast path needs no running event loop.
@@ -26,7 +31,7 @@ import uuid
 import ihate_work.o11y as o11y
 
 from xumret.executor.models import PhoneCommand
-from xumret.state.models import RunEvent, RunStateCreated
+from xumret.state.models import RunEvent, RunStateCreated, RunStatus
 from xumret.state.run import Run
 
 logger, *_ = o11y.get_o11y(__name__)
@@ -76,11 +81,25 @@ class PhoneState:
             existing = self._runs.get(opt.slug)
             if existing is not None:
                 if existing.is_terminal:
-                    raise SubmitConflict(opt.slug, reason="terminal-unreaped")
-                # live
-                if opt.mutex_by_slug:
-                    raise SubmitConflict(opt.slug, reason="live-mutex")
-                return existing  # idempotent join
+                    # cache_for turns a successful unreaped terminal into a
+                    # cache entry instead of a 409 — fresh ⇒ serve cached,
+                    # stale ⇒ implicit reap and spawn fresh. Failures are
+                    # never cached.
+                    if (
+                        opt.cache_for is not None
+                        and existing.status == RunStatus.completed
+                    ):
+                        age = time.time() - existing.record.updated_at
+                        if age <= opt.cache_for:
+                            return existing
+                        del self._runs[opt.slug]
+                    else:
+                        raise SubmitConflict(opt.slug, reason="terminal-unreaped")
+                else:
+                    # live
+                    if opt.mutex_by_slug:
+                        raise SubmitConflict(opt.slug, reason="live-mutex")
+                    return existing  # idempotent join
             slug = opt.slug
         else:
             slug = uuid.uuid4().hex

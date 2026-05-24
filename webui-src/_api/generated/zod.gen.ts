@@ -18,7 +18,8 @@ export const zDevice = z.object({
 export const zRunOption = z.object({
     timeout: z.number().nullish(),
     slug: z.string().nullish(),
-    mutex_by_slug: z.boolean().optional().default(false)
+    mutex_by_slug: z.boolean().optional().default(false),
+    cache_for: z.number().gt(0).nullish()
 });
 
 /**

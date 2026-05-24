@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StreamConfig(BaseModel):
@@ -56,13 +56,16 @@ class RunOption(BaseModel):
     slug: str | None = None
     # when True: don't run the command if another live run exists with the same slug; instead raise SubmitConflict.
     mutex_by_slug: bool = False
-    # TODO: stale-while-revalidate execution mode. Caller declares "this
-    # command's output is cacheable for N seconds" (e.g. `cache_for: float`).
-    # If a recent successful run with the same slug completed within N seconds,
-    # return its record instead of re-running. If older, return the cached
-    # record AND kick off a background refresh. Without this, on-demand device
-    # state fetches re-run every UI render — wasteful for cheap-but-frequent
-    # queries like termux-battery-status.
+    # cache_for: stale-while-revalidate window in seconds. Requires `slug`.
+    # On submit, if a `completed` terminal run with the same slug exists and is
+    # younger than `cache_for`, that record is returned without re-running
+    # (fresh hit). If older, the terminal is implicitly reaped and a fresh run
+    # is spawned (stale → revalidate). Failed/cancelled/timed_out terminals
+    # are NOT cached; they still require explicit reap. Most-recent-wins:
+    # the freshness threshold comes from the current submit's value.
+    # See doc/design-process-management.md "Submit decision matrix" for the
+    # full table including cache_for × mutex_by_slug interactions.
+    cache_for: float | None = Field(default=None, gt=0)
 
 
 class PhoneCommand(BaseModel):

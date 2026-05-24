@@ -227,6 +227,7 @@ client explicitly opts out by leaving `slug=None`.
 class RunOption(BaseModel):
     slug: str | None = None       # caller-declared identity; None → auto-gen
     mutex_by_slug: bool = False   # only meaningful when slug is set
+    cache_for: float | None = None  # stale-while-revalidate window; requires slug
 
 class PhoneCommand(BaseModel):
     # ... existing fields ...
@@ -248,18 +249,46 @@ Today's `command_id` everywhere — `CommandRecord.command_id`,
 
 `PhoneState.submit(phone_command)` reads `run_option`:
 
-| `slug` | `mutex_by_slug` | Live run? | Unreaped terminal? | Result                                         |
-|--------|-----------------|-----------|--------------------|------------------------------------------------|
-| None   | (n/a)           | n/a       | n/a                | Auto-generate UUID slug, create fresh run      |
-| `"X"`  | `False`         | yes       | –                  | Return existing run's handle (idempotent join) |
-| `"X"`  | `False`         | no        | yes                | **409** — client must reap the terminal first  |
-| `"X"`  | `False`         | no        | no                 | Create fresh run, index `X → run`              |
-| `"X"`  | `True`          | yes       | –                  | **409** — slug already running                 |
-| `"X"`  | `True`          | no        | yes                | **409** — client must reap the terminal first  |
-| `"X"`  | `True`          | no        | no                 | Create fresh run, index `X → run`              |
+| `slug` | `mutex_by_slug` | `cache_for` | Existing run                                | Result                                                       |
+|--------|-----------------|-------------|---------------------------------------------|--------------------------------------------------------------|
+| None   | (n/a)           | (n/a)       | n/a                                         | Auto-generate UUID slug, create fresh run                    |
+| `"X"`  | `False`         | any         | live                                        | Return existing run's handle (idempotent join)               |
+| `"X"`  | `True`          | any         | live                                        | **409 `live-mutex`**                                         |
+| `"X"`  | any             | `None`      | terminal (any)                              | **409 `terminal-unreaped`** — client must reap first         |
+| `"X"`  | any             | `N`         | terminal, `failed` / `cancelled` / `timed_out` | **409 `terminal-unreaped`** — failures are never cached    |
+| `"X"`  | any             | `N`         | terminal, `completed`, age ≤ N              | Return cached terminal record (no re-execution)              |
+| `"X"`  | any             | `N`         | terminal, `completed`, age > N              | Implicit reap + create fresh run, index `X → run`            |
+| `"X"`  | any             | any         | none                                        | Create fresh run, index `X → run`                            |
 
 `mutex_by_slug` differs only in how live runs are treated (join vs. fail).
-Unreaped terminals block submission regardless of the flag.
+`cache_for` turns a successful unreaped terminal into a freshness window
+instead of an unconditional 409. Failures still require explicit reap so
+callers acknowledge errors before retrying.
+
+### `cache_for` — stale-while-revalidate semantics
+
+`cache_for: float` declares "a completed run with this slug is reusable for
+N seconds." It's a freshness policy and composes with `mutex_by_slug`
+(concurrency policy) independently. Three corner cases the implementation
+resolves:
+
+1. **Storage during refresh.** Slug → 1 Run stays invariant. When a stale
+   terminal is replaced, the implicit reap happens at refresh-start; the
+   prior record is not kept server-side. Stale-while-revalidate is a *client*
+   posture: the caller holds the old value (e.g. via SWR), submit returns
+   the new live run, and the client swaps when the new run terminates.
+
+2. **`cache_for` + `mutex_by_slug=True`.** While a refresh is in flight,
+   there is no cached record left to serve, so additional concurrent
+   submitters still get `409 live-mutex`. This is the right behavior for
+   strict-mutex callers: the cache prevents *spawning* duplicate executions
+   most of the time (fresh-hit path), and the 409 window during refresh is
+   acceptably short.
+
+3. **Most-recent-wins on `cache_for` value.** The threshold is read from
+   the *current* submit, not from the cached run's record. Two callers with
+   different `cache_for` values see different freshness verdicts on the same
+   terminal record — each gets the answer appropriate to *its* tolerance.
 
 A run is **live** while `status in {pending, running}` and **terminal** once it
 reaches `completed`, `failed`, or `cancelled` (it won't transition again).

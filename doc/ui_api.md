@@ -3,6 +3,12 @@
 How the FastAPI surface, the OpenAPI spec, the generated TypeScript SDK, and
 the React hooks fit together.
 
+For the **semantics** of a submitted command — slug lifecycle, the submit
+decision matrix, `mutex_by_slug`, and `cache_for` (stale-while-revalidate)
+— read [doc/design-process-management.md](design-process-management.md).
+Frontend code in `webui-src/util/deviceState.ts` and any future fetcher that
+submits a `PhoneCommand` should set `run_option` per that document.
+
 ## The pipeline
 
 ```

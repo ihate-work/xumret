@@ -51,6 +51,7 @@ async def submit_run(
         timeout=pc.run_option.timeout,
         slug=pc.run_option.slug,
         mutex_by_slug=pc.run_option.mutex_by_slug,
+        cache_for=pc.run_option.cache_for,
     )
     try:
         return await svc.submit(pc)

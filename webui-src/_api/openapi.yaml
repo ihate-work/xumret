@@ -271,6 +271,12 @@ components:
           type: boolean
           title: Mutex By Slug
           default: false
+        cache_for:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Cache For
       type: object
       title: RunOption
       description: 'Caller-declared policy for a Run. TODO: rename to RunConfig'

@@ -5,10 +5,13 @@ import time
 
 import pytest
 
+from pydantic import ValidationError
+
 from xumret.executor.models import CommandStep, PhoneCommand, RunOption
 from xumret.state.models import (
     RunStateCancelled,
     RunStateCompleted,
+    RunStateFailed,
     RunStateRunning,
 )
 from xumret.state.phone import (
@@ -19,18 +22,23 @@ from xumret.state.phone import (
 )
 
 
-def _pc(*, slug: str | None = None, mutex: bool = False) -> PhoneCommand:
+def _pc(
+    *,
+    slug: str | None = None,
+    mutex: bool = False,
+    cache_for: float | None = None,
+) -> PhoneCommand:
     return PhoneCommand(
         name="t",
         steps=[CommandStep(argv=["echo", "hi"])],
-        run_option=RunOption(slug=slug, mutex_by_slug=mutex),
+        run_option=RunOption(slug=slug, mutex_by_slug=mutex, cache_for=cache_for),
     )
 
 
-def _force_terminal(state: PhoneState, slug: str) -> None:
+def _force_terminal(state: PhoneState, slug: str, *, at: float | None = None) -> None:
     run = state.get(slug)
     assert run is not None
-    run.emit(RunStateCompleted(slug=slug, at=time.time()))
+    run.emit(RunStateCompleted(slug=slug, at=at if at is not None else time.time()))
 
 
 # --- submit decision matrix ---
@@ -89,6 +97,84 @@ def test_submit_fresh_after_reap() -> None:
     state.reap("X")
     run = state.submit(_pc(slug="X"))
     assert run.slug == "X"
+
+
+# --- cache_for ---
+
+
+def test_cache_for_fresh_hit_returns_cached_terminal() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=10))
+    _force_terminal(state, "X")  # completed "now"
+    second = state.submit(_pc(slug="X", cache_for=10))
+    assert second is first
+    assert second.is_terminal
+
+
+def test_cache_for_stale_implicit_reap_then_new_run() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=5))
+    _force_terminal(state, "X", at=time.time() - 60)  # completed 60s ago
+    second = state.submit(_pc(slug="X", cache_for=5))
+    assert second is not first
+    assert second.slug == "X"
+    assert second.is_live
+
+
+def test_cache_for_does_not_cache_failed_terminal() -> None:
+    state = PhoneState()
+    run = state.submit(_pc(slug="X", cache_for=10))
+    run.emit(RunStateFailed(slug="X", at=time.time(), error="boom"))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_cache_for_does_not_cache_cancelled_terminal() -> None:
+    state = PhoneState()
+    run = state.submit(_pc(slug="X", cache_for=10))
+    run.emit(RunStateCancelled(slug="X", at=time.time()))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_cache_for_live_with_mutex_still_409s() -> None:
+    # cache only helps when there's a terminal completed record to serve.
+    # During an in-flight refresh (no cache entry left) mutex_by_slug
+    # still rejects concurrent submitters, by design.
+    state = PhoneState()
+    state.submit(_pc(slug="X", cache_for=10, mutex=True))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10, mutex=True))
+    assert ei.value.reason == "live-mutex"
+
+
+def test_cache_for_live_without_mutex_joins() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=10))
+    second = state.submit(_pc(slug="X", cache_for=10))
+    assert second is first
+
+
+def test_cache_for_most_recent_wins_can_extend_freshness() -> None:
+    # A later submit with a larger cache_for can still hit the cache
+    # even if the previous submit's threshold would have called it stale.
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=1))
+    _force_terminal(state, "X", at=time.time() - 5)
+    second = state.submit(_pc(slug="X", cache_for=60))
+    assert second is first
+
+
+def test_cache_for_zero_rejected_by_model() -> None:
+    with pytest.raises(ValidationError):
+        RunOption(slug="X", cache_for=0)
+
+
+def test_cache_for_negative_rejected_by_model() -> None:
+    with pytest.raises(ValidationError):
+        RunOption(slug="X", cache_for=-1)
 
 
 # --- get / list ---

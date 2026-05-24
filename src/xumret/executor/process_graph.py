@@ -89,6 +89,8 @@ class ProcessGraphBuilder:
         ro = pc.run_option
         if ro.mutex_by_slug and ro.slug is None:
             raise GraphValidationError("mutex_by_slug requires slug to be set")
+        if ro.cache_for is not None and ro.slug is None:
+            raise GraphValidationError("cache_for requires slug to be set")
         if ro.timeout is not None and ro.timeout <= 0:
             raise GraphValidationError(f"timeout must be > 0, got {ro.timeout}")
 

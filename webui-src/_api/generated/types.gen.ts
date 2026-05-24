@@ -98,6 +98,10 @@ export type RunOption = {
      * Mutex By Slug
      */
     mutex_by_slug?: boolean;
+    /**
+     * Cache For
+     */
+    cache_for?: number | null;
 };
 
 /**

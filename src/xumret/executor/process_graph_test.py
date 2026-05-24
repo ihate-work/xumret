@@ -160,6 +160,15 @@ def test_reject_mutex_without_slug() -> None:
         ProcessGraphBuilder().build(pc)
 
 
+def test_reject_cache_for_without_slug() -> None:
+    pc = _pc(
+        [CommandStep(argv=["echo", "hi"])],
+        run_option=RunOption(cache_for=10),
+    )
+    with pytest.raises(GraphValidationError, match="cache_for requires slug"):
+        ProcessGraphBuilder().build(pc)
+
+
 def test_reject_non_positive_timeout() -> None:
     pc = _pc(
         [CommandStep(argv=["echo", "hi"])],
