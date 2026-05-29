@@ -12,6 +12,7 @@
     "generate:api": "openapi-ts"
   },
   "dependencies": {
+    "@jokester/ts-commonutil": "^0.6.1",
     "debug": "^4.4.3",
     "primeicons": "^7.0.0",
     "primereact": "^10.9.7",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "^0.97.1",
+    "@types/debug": "^4.1.13",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",

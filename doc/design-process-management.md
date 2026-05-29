@@ -346,9 +346,11 @@ Idempotency notes per endpoint:
 
 - Full transition log (`step_started`, `step_exited`, status changes — these
   are small).
-- Per-step stdout/stderr **tails** with a fixed cap of **128 KiB per
+- Per-step stdout/stderr **tails** with a fixed cap of **1 MiB per
   process** (i.e., per pipeline step). Older bytes are dropped FIFO. The
-  cap may later be configurable; for v0.2 it's a constant.
+  cap may later be configurable; for v0.2 it's a constant. (Raised from
+  128 KiB on 2026-05-28 after `termux-camera-info` on a multi-camera device
+  exceeded 128 KiB and got head-truncated.)
 
 For live tailing, the client opens SSE on `/api/events` after fetching
 `/state`. The `/state` snapshot is the "join point"; SSE continues from

@@ -104,7 +104,7 @@ def test_stderr_lines_separate_from_stdout() -> None:
     assert step.stderr_tail == "err\n"
 
 
-def test_tail_caps_at_128k() -> None:
+def test_tail_caps_at_limit() -> None:
     run = Run(slug="s", phone_command=_pc())
     big = "x" * (OUTPUT_TAIL_CAP * 2)
     run.emit(RunOutputEvent(

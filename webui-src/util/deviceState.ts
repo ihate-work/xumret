@@ -18,12 +18,16 @@
 import {
   getRunApiRunsSlugGet,
   submitRunApiRunsPost,
+  watchRunTerminal,
   type PhoneCommandInput,
   type RunRecord,
   type RunStatus,
 } from '~/_api';
+import { createDebugLogger } from '~/util/log';
+import { parseJsonValues } from '~/util/jsonStream';
 
-const POLL_INTERVAL_MS = 200;
+const log = createDebugLogger(import.meta.url);
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TERMINAL: ReadonlyArray<RunStatus> = ['completed', 'failed', 'cancelled', 'timed_out'];
 const isTerminal = (s: RunStatus) => TERMINAL.includes(s);
@@ -41,49 +45,114 @@ function captureCommand(name: string, argv: string[], opt: FetchOptions): PhoneC
   };
 }
 
-async function waitForTerminal(slug: string, timeoutMs: number): Promise<RunRecord> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const { data: rec } = await getRunApiRunsSlugGet({
-      path: { slug }, throwOnError: true,
-    });
-    if (isTerminal(rec.status)) return rec;
-    if (Date.now() > deadline) {
-      throw new Error(`run ${slug} did not finish within ${timeoutMs}ms`);
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-}
-
-async function runOnce(name: string, argv: string[], opt: FetchOptions): Promise<RunRecord> {
-  const { data: initial } = await submitRunApiRunsPost({
-    body: { phone_command: captureCommand(name, argv, opt) },
-    throwOnError: true,
+function timeoutPromise(ms: number, slug: string, signal: AbortSignal): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    const t = setTimeout(() => reject(
+      new Error(`run ${slug} did not finish within ${ms}ms`),
+    ), ms);
+    signal.addEventListener('abort', () => clearTimeout(t), { once: true });
   });
-  const rec = isTerminal(initial.status)
-    ? initial
-    : await waitForTerminal(initial.slug, DEFAULT_TIMEOUT_MS);
-  if (rec.status !== 'completed') {
-    throw new Error(`${name} ${rec.status}${rec.error ? `: ${rec.error}` : ''}`);
-  }
-  return rec;
 }
 
-async function runAndParse<T>(name: string, argv: string[], opt: FetchOptions): Promise<T> {
-  const rec = await runOnce(name, argv, opt);
+async function runOnce(
+  name: string,
+  argv: string[],
+  opt: FetchOptions,
+  signal?: AbortSignal,
+): Promise<RunRecord> {
+  const t0 = performance.now();
+  const slug = opt.slug;
+
+  // Subscribe to SSE *before* submitting so we don't miss the terminal event
+  // due to a race between the submit RTT and the run completing.
+  const watchAc = new AbortController();
+  const onOuterAbort = () => watchAc.abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+  const terminalP = watchRunTerminal(slug, watchAc.signal);
+  terminalP.catch(() => {}); // suppress unhandled rejection on cache-hit path
+
+  try {
+    const { data: initial } = await submitRunApiRunsPost({
+      body: { phone_command: captureCommand(name, argv, opt) },
+      throwOnError: true,
+      signal,
+    });
+
+    let rec: RunRecord;
+    if (isTerminal(initial.status)) {
+      // Server returning a terminal record from submit = served from cache_for.
+      log('%s cache-hit slug=%s status=%s', name, slug, initial.status);
+      rec = initial;
+    } else {
+      log('%s spawn slug=%s', name, slug);
+      await Promise.race([terminalP, timeoutPromise(DEFAULT_TIMEOUT_MS, slug, watchAc.signal)]);
+      const r = await getRunApiRunsSlugGet({ path: { slug }, throwOnError: true, signal });
+      rec = r.data;
+    }
+    log('%s done slug=%s status=%s in %dms',
+      name, slug, rec.status, Math.round(performance.now() - t0));
+    if (rec.status !== 'completed') {
+      throw new Error(`${name} ${rec.status}${rec.error ? `: ${rec.error}` : ''}`);
+    }
+    return rec;
+  } finally {
+    watchAc.abort();
+    signal?.removeEventListener('abort', onOuterAbort);
+  }
+}
+
+// Termux-api commands sometimes "succeed" at the process level (exit 0,
+// Run.status='completed') but report a domain-level failure in-band as
+// `{"error": "..."}` on stdout — e.g. when an Android permission is denied.
+// Recognize that shape so the card UI gets a useful message instead of a
+// type cast lying about the payload (cf. doc/wits.md device-side gap).
+function extractInBandError(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  const msg = obj.error ?? obj.API_ERROR;
+  return typeof msg === 'string' ? msg : null;
+}
+
+async function runAndParse<T>(
+  name: string,
+  argv: string[],
+  opt: FetchOptions,
+  signal?: AbortSignal,
+): Promise<T> {
+  const rec = await runOnce(name, argv, opt, signal);
   const tail = rec.steps[0]?.stdout_tail ?? '';
   if (!tail) {
     throw new Error(`${name} produced no stdout`);
   }
+  let values: unknown[];
   try {
-    return JSON.parse(tail) as T;
+    values = parseJsonValues(tail);
   } catch (e) {
+    log('%s parse failed len=%d head=%j tail=%j',
+      name, tail.length, tail.slice(0, 200), tail.slice(-200));
     throw new Error(`${name} stdout is not JSON: ${(e as Error).message}`);
   }
+  if (values.length === 0) {
+    throw new Error(`${name} produced no JSON values`);
+  }
+  // Single value: termux-* commands typically emit one object/array.
+  // Multi value: a process emitting JSONL — surface the array of values.
+  const parsed = values.length === 1 ? values[0] : values;
+  const inBandError = extractInBandError(parsed);
+  if (inBandError !== null) {
+    log('%s in-band error: %s', name, inBandError);
+    throw new Error(`${name}: ${inBandError}`);
+  }
+  return parsed as T;
 }
 
-async function runAndCaptureRaw(name: string, argv: string[], opt: FetchOptions): Promise<string> {
-  const rec = await runOnce(name, argv, opt);
+async function runAndCaptureRaw(
+  name: string,
+  argv: string[],
+  opt: FetchOptions,
+  signal?: AbortSignal,
+): Promise<string> {
+  const rec = await runOnce(name, argv, opt, signal);
   // Trim trailing newline appended by the run-output joiner.
   return (rec.steps[0]?.stdout_tail ?? '').replace(/\n$/, '');
 }
@@ -170,42 +239,42 @@ export interface VolumeEntry {
 // Per-fetcher cache windows. Tuned by how fast the underlying state moves
 // vs. how cheap the termux-* call is. Tighter where the user expects a
 // freshly-refreshed value; looser where state is near-constant.
-export const fetchBattery = () =>
+export const fetchBattery = (signal?: AbortSignal) =>
   runAndParse<Battery>('battery-status', ['termux-battery-status'],
-    { slug: 'battery-status', cacheFor: 5 });
+    { slug: 'battery-status', cacheFor: 5 }, signal);
 
-export const fetchWifi = () =>
+export const fetchWifi = (signal?: AbortSignal) =>
   runAndParse<Wifi>('wifi-info', ['termux-wifi-connectioninfo'],
-    { slug: 'wifi-info', cacheFor: 10 });
+    { slug: 'wifi-info', cacheFor: 10 }, signal);
 
-export const fetchLocation = () =>
+export const fetchLocation = (signal?: AbortSignal) =>
   runAndParse<Location>('location', ['termux-location'],
-    { slug: 'location', cacheFor: 5 });
+    { slug: 'location', cacheFor: 5 }, signal);
 
-export const fetchTelephony = () =>
+export const fetchTelephony = (signal?: AbortSignal) =>
   runAndParse<Telephony>('telephony', ['termux-telephony-deviceinfo'],
-    { slug: 'telephony', cacheFor: 30 });
+    { slug: 'telephony', cacheFor: 30 }, signal);
 
-export const fetchSmsList = () =>
+export const fetchSmsList = (signal?: AbortSignal) =>
   runAndParse<SmsMessage[]>('sms-list', ['termux-sms-list'],
-    { slug: 'sms-list', cacheFor: 30 });
+    { slug: 'sms-list', cacheFor: 30 }, signal);
 
-export const fetchContacts = () =>
+export const fetchContacts = (signal?: AbortSignal) =>
   runAndParse<Contact[]>('contact-list', ['termux-contact-list'],
-    { slug: 'contact-list', cacheFor: 300 });
+    { slug: 'contact-list', cacheFor: 300 }, signal);
 
-export const fetchCallLog = () =>
+export const fetchCallLog = (signal?: AbortSignal) =>
   runAndParse<CallLogEntry[]>('call-log', ['termux-call-log'],
-    { slug: 'call-log', cacheFor: 30 });
+    { slug: 'call-log', cacheFor: 30 }, signal);
 
-export const fetchCameras = () =>
+export const fetchCameras = (signal?: AbortSignal) =>
   runAndParse<CameraInfo[]>('camera-info', ['termux-camera-info'],
-    { slug: 'camera-info', cacheFor: 600 });
+    { slug: 'camera-info', cacheFor: 600 }, signal);
 
-export const fetchClipboard = () =>
+export const fetchClipboard = (signal?: AbortSignal) =>
   runAndCaptureRaw('clipboard-get', ['termux-clipboard-get'],
-    { slug: 'clipboard-get', cacheFor: 2 });
+    { slug: 'clipboard-get', cacheFor: 2 }, signal);
 
-export const fetchVolume = () =>
+export const fetchVolume = (signal?: AbortSignal) =>
   runAndParse<VolumeEntry[]>('volume', ['termux-volume'],
-    { slug: 'volume', cacheFor: 10 });
+    { slug: 'volume', cacheFor: 10 }, signal);

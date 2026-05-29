@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useAsyncEffect } from '@jokester/ts-commonutil/lib/react/hook/use-async-effect';
 import { CardBoundary } from '~/components/CardBoundary';
 import { Column } from 'primereact/column';
 import { DataTable } from 'primereact/datatable';
@@ -30,15 +31,18 @@ import {
 
 type Slice<T> = { data: T | null; err: string | null };
 
-function useSlice<T>(fetcher: () => Promise<T>): Slice<T> {
+function useSlice<T>(fetcher: (signal?: AbortSignal) => Promise<T>): Slice<T> {
   const [state, setState] = useState<Slice<T>>({ data: null, err: null });
-  useEffect(() => {
-    let cancelled = false;
-    fetcher()
-      .then((d) => { if (!cancelled) setState({ data: d, err: null }); })
-      .catch((e) => { if (!cancelled) setState({ data: null, err: String(e) }); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  useAsyncEffect(async (running, released) => {
+    const ac = new AbortController();
+    void released.then(() => ac.abort());
+    try {
+      const d = await fetcher(ac.signal);
+      if (running.current) setState({ data: d, err: null });
+    } catch (e) {
+      if (ac.signal.aborted) return;
+      if (running.current) setState({ data: null, err: String(e) });
+    }
   }, []);
   return state;
 }

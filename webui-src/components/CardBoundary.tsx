@@ -2,6 +2,10 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Card, type CardProps } from 'primereact/card';
 import { Message } from 'primereact/message';
 
+import { createDebugLogger } from '~/util/log';
+
+const log = createDebugLogger(import.meta.url);
+
 interface State {
   error: Error | null;
 }
@@ -14,7 +18,7 @@ export class CardBoundary extends Component<CardProps, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('CardBoundary caught error', error, info);
+    log('caught %o %o', error, info);
   }
 
   render(): ReactNode {

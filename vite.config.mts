@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import { Agent } from 'node:http';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 
@@ -10,6 +11,11 @@ const DEV_PHONE_API_TARGET = /^https?:\/\//.test(remoteAddr)
   ? remoteAddr
   : `http://${remoteAddr}`;
 console.log(`[vite] proxying /api → ${DEV_PHONE_API_TARGET}`);
+
+// http-proxy defaults to http.globalAgent (no keep-alive), so every proxied
+// request sends Connection: close and uvicorn echoes it back. A keep-alive
+// agent lets short JSON calls reuse a single TCP connection.
+const keepAliveAgent = new Agent({ keepAlive: true });
 
 export default defineConfig({
   root: path.join(__dirname, 'webui-src'),
@@ -28,6 +34,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: DEV_PHONE_API_TARGET,
+        agent: keepAliveAgent,
       },
     },
   },

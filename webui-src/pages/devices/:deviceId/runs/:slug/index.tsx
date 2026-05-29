@@ -14,6 +14,9 @@ import {
   useRunEvents,
   type RunStatus,
 } from '~/_api';
+import { createDebugLogger } from '~/util/log';
+
+const log = createDebugLogger(import.meta.url);
 
 const statusSeverity: Record<RunStatus, 'success' | 'info' | 'warning' | 'danger' | 'secondary'> = {
   completed: 'success',
@@ -48,6 +51,7 @@ export function DeviceRunPage({
       await stopRunApiRunsSlugStopPost({ path: { slug }, throwOnError: true });
       await mutate();
     } catch (e) {
+      log('stop failed slug=%s err=%o', slug, e);
       setError(String(e));
     }
   };
@@ -55,6 +59,7 @@ export function DeviceRunPage({
     try {
       await reapRunApiRunsSlugReapPost({ path: { slug }, throwOnError: true });
     } catch (e) {
+      log('reap failed slug=%s err=%o', slug, e);
       setError(String(e));
     }
   };
