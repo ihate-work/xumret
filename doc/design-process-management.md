@@ -321,15 +321,16 @@ they prefix with the device scope from [`ui_api.md`](ui_api.md), giving e.g.
 `/api/ui_v0/devices/{device_id}/runs/{slug}`. In single mode the device
 prefix may be elided.
 
-| HTTP   | Path (run-scoped portion)   | Purpose                                                |
-|--------|-----------------------------|--------------------------------------------------------|
-| POST   | `…/runs`                    | Submit (auto-gen slug or caller-declared)              |
-| GET    | `…/runs`                    | List all records (live + unreaped terminal)            |
-| GET    | `…/runs/{slug}`             | Slim record — status, error, result summary           |
-| GET    | `…/runs/{slug}/state`       | Rich state — transition log + per-step output buffers |
-| POST   | `…/runs/{slug}/stop`        | Cancel a live run (no-op if already terminal)         |
-| POST   | `…/runs/{slug}/reap`        | Reap a terminal run (frees slug)                      |
-| GET    | `…/events`                  | SSE stream of run events (existing)                   |
+| HTTP   | Path (run-scoped portion)         | Purpose                                                  |
+|--------|-----------------------------------|----------------------------------------------------------|
+| POST   | `…/runs`                          | Submit (auto-gen slug or caller-declared)                |
+| GET    | `…/runs`                          | List all records (live + unreaped terminal)              |
+| GET    | `…/runs/{slug}`                   | Slim record — status, error, result summary             |
+| GET    | `…/runs/{slug}/state`             | Rich state — transition log + per-step output buffers   |
+| GET    | `…/runs/{slug}/steps/{i}/stdout`  | **Full** captured stdout for step `i` (text/plain). Distinct from `state`'s capped `stdout_tail`; serves the entire captured payload for one-shot query commands whose output *is* the result. |
+| POST   | `…/runs/{slug}/stop`              | Cancel a live run (no-op if already terminal)           |
+| POST   | `…/runs/{slug}/reap`              | Reap a terminal run (frees slug)                         |
+| GET    | `…/events`                        | SSE stream of run events (existing)                     |
 
 Idempotency notes per endpoint:
 
@@ -346,11 +347,16 @@ Idempotency notes per endpoint:
 
 - Full transition log (`step_started`, `step_exited`, status changes — these
   are small).
-- Per-step stdout/stderr **tails** with a fixed cap of **1 MiB per
+- Per-step stdout/stderr **tails** with a fixed cap of **128 KiB per
   process** (i.e., per pipeline step). Older bytes are dropped FIFO. The
-  cap may later be configurable; for v0.2 it's a constant. (Raised from
-  128 KiB on 2026-05-28 after `termux-camera-info` on a multi-camera device
-  exceeded 128 KiB and got head-truncated.)
+  cap may later be configurable; for v0.2 it's a constant.
+
+The `stdout_tail` field is intentionally a *tail* for live observation, not
+a result-delivery channel — for one-shot query commands whose entire output
+is the result, fetch the captured stream via
+`GET /api/runs/{slug}/steps/{i}/stdout` instead. The executor writes the
+full output to a per-run tempfile (`local_executor.py:327`); the endpoint
+streams that file. No cap.
 
 For live tailing, the client opens SSE on `/api/events` after fetching
 `/state`. The `/state` snapshot is the "join point"; SSE continues from

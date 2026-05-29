@@ -89,6 +89,11 @@ class SingleMain:
         self._tasks.pop(slug, None)
         return True
 
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:
+        if self._state.get(slug) is None:
+            return None
+        return await self._executor.step_stdout_bytes(slug, step_index)
+
     def subscribe(self) -> asyncio.Queue[RunEvent]:
         return self._state.subscribe()
 

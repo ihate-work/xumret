@@ -222,6 +222,48 @@ def test_reap_then_reap_404() -> None:
     assert second.status_code == 404
 
 
+# --- GET /api/runs/{slug}/steps/{i}/stdout ---
+
+
+def _make_client_with_executor() -> tuple[TestClient, DummyExecutor, PhoneState]:
+    """Variant of _make_client that exposes the dummy executor for stdout seeding."""
+    state = PhoneState()
+    executor = DummyExecutor()
+    service = SingleMain(executor=executor, state=state)
+    app = create_app(service=service)
+    return TestClient(app), executor, state
+
+
+def test_step_stdout_returns_captured_bytes() -> None:
+    # Seed state + captured bytes directly so the test doesn't depend on
+    # driving the dummy executor to completion through the asyncio loop
+    # (which TestClient doesn't reliably pump between requests).
+    client, executor, state = _make_client_with_executor()
+    _seed_live_run(state, "X")
+    executor._captured_stdout[("X", 0)] = b'{"percentage": 80}\n'
+    _force_terminal(state, "X")
+
+    resp = client.get("/api/runs/X/steps/0/stdout")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    assert resp.text == '{"percentage": 80}\n'
+
+
+def test_step_stdout_unknown_slug_404() -> None:
+    client, _, _ = _make_client()
+    resp = client.get("/api/runs/nope/steps/0/stdout")
+    assert resp.status_code == 404
+
+
+def test_step_stdout_uncaptured_step_404() -> None:
+    # A run exists but the executor never captured anything for step 0.
+    client, _, state = _make_client_with_executor()
+    _seed_live_run(state, "X")
+    _force_terminal(state, "X")
+    resp = client.get("/api/runs/X/steps/0/stdout")
+    assert resp.status_code == 404
+
+
 # --- DELETE not exposed ---
 
 

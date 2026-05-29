@@ -90,6 +90,18 @@ class LocalExecutor(Executor):
     def tmpdir_for(self, slug: str) -> Path | None:
         return self._tmpdirs.get(slug)
 
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:
+        tmpdir = self._tmpdirs.get(slug)
+        if tmpdir is None:
+            return None
+        path = tmpdir / f"step{step_index}.stdout"
+        if not path.exists():
+            return None
+        # Blocking file read in default executor — keeps the loop responsive
+        # for captures that grow into the multi-MB range.
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, path.read_bytes)
+
     # ── Driver ───────────────────────────────────────────────────────
 
     async def _drive(self, run: Run, cancel_ev: asyncio.Event, tmpdir: Path) -> None:

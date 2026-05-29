@@ -156,6 +156,11 @@ class DummyExecutor(Executor):
     def __init__(self) -> None:
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._fake_pid_seed = 90000
+        # Mirrors LocalExecutor's per-run tempfile capture: maps (slug, step_index)
+        # → full captured stdout bytes so `step_stdout_bytes` has something to
+        # serve. Same lifecycle quirk as LocalExecutor's _tmpdirs: entries
+        # leak until shutdown or explicit cleanup.
+        self._captured_stdout: dict[tuple[str, int], bytes] = {}
 
     async def run(self, run: Run) -> None:
         slug = run.slug
@@ -175,6 +180,7 @@ class DummyExecutor(Executor):
                 await asyncio.sleep(_LATENCIES.get(binary, _DEFAULT_LATENCY))
                 stdout = _fake_stdout(binary, step.argv)
                 if stdout and step.stdout_stream.capture:
+                    self._captured_stdout[(slug, i)] = stdout.encode()
                     lines = stdout.rstrip("\n").split("\n")
                     run.emit(RunOutputEvent(
                         slug=slug, at=time.time(), step_index=i,
@@ -200,3 +206,6 @@ class DummyExecutor(Executor):
     async def shutdown(self) -> None:
         for ev in list(self._cancel_events.values()):
             ev.set()
+
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:
+        return self._captured_stdout.get((slug, step_index))

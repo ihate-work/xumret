@@ -28,3 +28,13 @@ class Executor(ABC):
     @abstractmethod
     async def shutdown(self) -> None:
         """Best-effort shutdown of all in-flight runs."""
+
+    @abstractmethod
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:
+        """Return the full captured stdout for one step, or None if unknown.
+
+        Distinct from `Run.steps[i].stdout_tail`, which is a bounded in-memory
+        tail meant for live observation. This is the *full* captured payload,
+        intended for one-shot query commands whose entire output is the result
+        (e.g. `termux-camera-info`, `termux-sms-list`).
+        """

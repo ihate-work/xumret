@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ihate_work.o11y as o11y
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 
 from xumret.executor.models import PhoneCommand
@@ -103,6 +104,27 @@ async def stop_run(
     if record is None:
         raise HTTPException(status_code=404, detail="run not found")
     return record
+
+
+@router.get(
+    "/runs/{slug}/steps/{step_index}/stdout",
+    response_class=PlainTextResponse,
+)
+async def get_step_stdout(
+    slug: str,
+    step_index: int,
+    svc: XumretService = Depends(get_service),
+) -> Response:
+    """Return the full captured stdout for one step.
+
+    Unlike `Run.steps[i].stdout_tail` (a 128 KiB tail for live observation),
+    this returns the entire captured payload, suitable for one-shot query
+    commands whose stdout *is* the result.
+    """
+    data = await svc.step_stdout_bytes(slug, step_index)
+    if data is None:
+        raise HTTPException(status_code=404, detail="step stdout not found")
+    return Response(content=data, media_type="text/plain; charset=utf-8")
 
 
 @router.post("/runs/{slug}/reap")

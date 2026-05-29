@@ -50,6 +50,9 @@ class _BlockingExecutor(Executor):
     async def shutdown(self) -> None:
         self.shutdown_called = True
 
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:  # pragma: no cover - unused
+        return None
+
 
 class _CrashingExecutor(Executor):
     """`run` raises after a tick to exercise `_drive`'s except-Exception path."""
@@ -63,6 +66,9 @@ class _CrashingExecutor(Executor):
 
     async def shutdown(self) -> None:  # pragma: no cover - unused
         pass
+
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:  # pragma: no cover - unused
+        return None
 
 
 # --- list_devices ---
