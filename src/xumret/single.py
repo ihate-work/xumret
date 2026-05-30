@@ -53,8 +53,14 @@ class SingleMain:
 
     async def submit(self, phone_command: PhoneCommand) -> RunRecord:
         run = self._state.submit(phone_command)
-        # If submit returned an existing live run (idempotent join), don't restart.
-        if run.slug not in self._tasks or self._tasks[run.slug].done():
+        # Spawn a driver only for a freshly-pending run. A live join already has
+        # a driver running; a cache_for hit returns an existing terminal Run
+        # whose tmpdir holds the captured output — re-driving would mkdtemp a
+        # new (empty) tmpdir and clobber that captured output.
+        needs_driver = run.is_live and (
+            run.slug not in self._tasks or self._tasks[run.slug].done()
+        )
+        if needs_driver:
             self._tasks[run.slug] = asyncio.create_task(
                 self._drive(run), name=f"run[{run.slug}]",
             )

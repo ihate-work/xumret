@@ -134,6 +134,61 @@ async def test_shutdown_cancels_inflight_tasks_and_calls_executor() -> None:
     assert executor.shutdown_called
 
 
+# --- cache_for: re-submit must not re-drive ---
+
+
+class _CountingExecutor(Executor):
+    """Records how many times `run` is invoked, completes immediately."""
+
+    def __init__(self) -> None:
+        self.run_calls = 0
+
+    async def run(self, run: Run) -> None:
+        self.run_calls += 1
+        run.emit(RunStateCompleted(slug=run.slug, at=time.time()))
+
+    async def stop(self, slug: str) -> None:  # pragma: no cover - unused
+        pass
+
+    async def shutdown(self) -> None:  # pragma: no cover - unused
+        pass
+
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:  # pragma: no cover - unused
+        return None
+
+
+@pytest.mark.anyio
+async def test_cache_hit_resubmit_does_not_redrive() -> None:
+    """A `cache_for` hit must not spawn a new driver task.
+
+    Re-driving a cached terminal run would make `LocalExecutor.run` mkdtemp a
+    fresh tmpdir, clobbering the captured stdout from the original run — the
+    next `step_stdout_bytes` would then read an empty file. Regression for
+    "camera-info produced no stdout" on second page-open.
+    """
+    state = PhoneState()
+    executor = _CountingExecutor()
+    svc = SingleMain(executor=executor, state=state)
+
+    pc = PhoneCommand(
+        name="t",
+        steps=[CommandStep(argv=["echo", "hi"])],
+        run_option=RunOption(slug="X", cache_for=600),
+    )
+
+    first = await svc.submit(pc)
+    # Let the driver complete.
+    await svc._tasks["X"]
+    assert first.slug == "X"
+    assert executor.run_calls == 1
+
+    # Second submit within cache_for window must be served from cache without
+    # re-driving the executor.
+    second = await svc.submit(pc)
+    assert second.slug == "X"
+    assert executor.run_calls == 1, "cache hit should not invoke executor.run again"
+
+
 # --- _drive exception handling ---
 
 
