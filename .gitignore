@@ -17,6 +17,7 @@ coverage.xml
 # env
 .env
 .env.local
+Makefile.var
 
 # project
 /logs
@@ -25,3 +26,4 @@ coverage.xml
 .DS_Store
 *.log
 node_modules
+/webui-assets

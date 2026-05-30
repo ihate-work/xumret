@@ -1,164 +1,273 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
-from xumret.executor.models import (
-    PhoneCommand,
-    PhoneCommandDaemonHandle,
-    PhoneCommandResult,
-    ProcessResult,
-    ProcessStep,
+import pytest
+
+from pydantic import ValidationError
+
+from xumret.executor.models import CommandStep, PhoneCommand, RunOption
+from xumret.state.models import (
+    RunStateCancelled,
+    RunStateCompleted,
+    RunStateFailed,
+    RunStateRunning,
 )
-from xumret.state.models import CommandStatus
-from xumret.state.phone import PhoneState
+from xumret.state.phone import (
+    PhoneState,
+    StillLive,
+    SubmitConflict,
+    UnknownSlug,
+)
 
 
-def _make_pc(name: str = "test") -> PhoneCommand:
+def _pc(
+    *,
+    slug: str | None = None,
+    mutex: bool = False,
+    cache_for: float | None = None,
+) -> PhoneCommand:
     return PhoneCommand(
-        name=name,
-        steps=[ProcessStep(argv=["echo", "hi"])],
-        connections=[],
+        name="t",
+        steps=[CommandStep(argv=["echo", "hi"])],
+        run_option=RunOption(slug=slug, mutex_by_slug=mutex, cache_for=cache_for),
     )
 
 
-# --- create / get / list ---
+def _force_terminal(state: PhoneState, slug: str, *, at: float | None = None) -> None:
+    run = state.get(slug)
+    assert run is not None
+    run.emit(RunStateCompleted(slug=slug, at=at if at is not None else time.time()))
 
 
-def test_create_returns_pending_record():
+# --- submit decision matrix ---
+
+
+def test_submit_auto_generates_slug_when_none() -> None:
     state = PhoneState()
-    record = state.create(command_id="cmd-1", phone_command=_make_pc())
-    assert record.command_id == "cmd-1"
-    assert record.status == CommandStatus.pending
-    assert record.phone_command.name == "test"
-    assert record.created_at > 0
-    assert record.updated_at == record.created_at
+    run = state.submit(_pc())
+    assert run.slug
+    assert state.get(run.slug) is run
 
 
-def test_get_existing():
+def test_submit_with_caller_slug_uses_it() -> None:
     state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    assert state.get("cmd-1") is not None
-    assert state.get("cmd-1").command_id == "cmd-1"
+    run = state.submit(_pc(slug="my-slug"))
+    assert run.slug == "my-slug"
 
 
-def test_get_missing():
+def test_submit_join_when_live_same_slug_no_mutex() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X"))
+    second = state.submit(_pc(slug="X"))
+    assert first is second  # idempotent join
+
+
+def test_submit_409_when_terminal_unreaped_no_mutex() -> None:
+    state = PhoneState()
+    state.submit(_pc(slug="X"))
+    _force_terminal(state, "X")
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X"))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_submit_409_when_live_with_mutex() -> None:
+    state = PhoneState()
+    state.submit(_pc(slug="X"))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", mutex=True))
+    assert ei.value.reason == "live-mutex"
+
+
+def test_submit_409_when_terminal_unreaped_with_mutex() -> None:
+    state = PhoneState()
+    state.submit(_pc(slug="X"))
+    _force_terminal(state, "X")
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", mutex=True))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_submit_fresh_after_reap() -> None:
+    state = PhoneState()
+    state.submit(_pc(slug="X"))
+    _force_terminal(state, "X")
+    state.reap("X")
+    run = state.submit(_pc(slug="X"))
+    assert run.slug == "X"
+
+
+# --- cache_for ---
+
+
+def test_cache_for_fresh_hit_returns_cached_terminal() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=10))
+    _force_terminal(state, "X")  # completed "now"
+    second = state.submit(_pc(slug="X", cache_for=10))
+    assert second is first
+    assert second.is_terminal
+
+
+def test_cache_for_stale_implicit_reap_then_new_run() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=5))
+    _force_terminal(state, "X", at=time.time() - 60)  # completed 60s ago
+    second = state.submit(_pc(slug="X", cache_for=5))
+    assert second is not first
+    assert second.slug == "X"
+    assert second.is_live
+
+
+def test_cache_for_does_not_cache_failed_terminal() -> None:
+    state = PhoneState()
+    run = state.submit(_pc(slug="X", cache_for=10))
+    run.emit(RunStateFailed(slug="X", at=time.time(), error="boom"))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_cache_for_does_not_cache_cancelled_terminal() -> None:
+    state = PhoneState()
+    run = state.submit(_pc(slug="X", cache_for=10))
+    run.emit(RunStateCancelled(slug="X", at=time.time()))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10))
+    assert ei.value.reason == "terminal-unreaped"
+
+
+def test_cache_for_live_with_mutex_still_409s() -> None:
+    # cache only helps when there's a terminal completed record to serve.
+    # During an in-flight refresh (no cache entry left) mutex_by_slug
+    # still rejects concurrent submitters, by design.
+    state = PhoneState()
+    state.submit(_pc(slug="X", cache_for=10, mutex=True))
+    with pytest.raises(SubmitConflict) as ei:
+        state.submit(_pc(slug="X", cache_for=10, mutex=True))
+    assert ei.value.reason == "live-mutex"
+
+
+def test_cache_for_live_without_mutex_joins() -> None:
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=10))
+    second = state.submit(_pc(slug="X", cache_for=10))
+    assert second is first
+
+
+def test_cache_for_most_recent_wins_can_extend_freshness() -> None:
+    # A later submit with a larger cache_for can still hit the cache
+    # even if the previous submit's threshold would have called it stale.
+    state = PhoneState()
+    first = state.submit(_pc(slug="X", cache_for=1))
+    _force_terminal(state, "X", at=time.time() - 5)
+    second = state.submit(_pc(slug="X", cache_for=60))
+    assert second is first
+
+
+def test_cache_for_zero_rejected_by_model() -> None:
+    with pytest.raises(ValidationError):
+        RunOption(slug="X", cache_for=0)
+
+
+def test_cache_for_negative_rejected_by_model() -> None:
+    with pytest.raises(ValidationError):
+        RunOption(slug="X", cache_for=-1)
+
+
+# --- get / list ---
+
+
+def test_get_existing_returns_run() -> None:
+    state = PhoneState()
+    run = state.submit(_pc(slug="X"))
+    assert state.get("X") is run
+
+
+def test_get_missing_returns_none() -> None:
     state = PhoneState()
     assert state.get("nope") is None
 
 
-def test_list_empty():
+def test_list_returns_all() -> None:
     state = PhoneState()
-    assert state.list() == []
+    state.submit(_pc(slug="a"))
+    state.submit(_pc(slug="b"))
+    slugs = {r.slug for r in state.list()}
+    assert slugs == {"a", "b"}
 
 
-def test_list_multiple():
+# --- reap ---
+
+
+def test_reap_terminal_succeeds() -> None:
     state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.create(command_id="cmd-2", phone_command=_make_pc())
-    ids = {r.command_id for r in state.list()}
-    assert ids == {"cmd-1", "cmd-2"}
+    state.submit(_pc(slug="X"))
+    _force_terminal(state, "X")
+    state.reap("X")
+    assert state.get("X") is None
 
 
-# --- state transitions ---
-
-
-def test_set_running():
+def test_reap_live_raises_still_live() -> None:
     state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.set_running("cmd-1")
-    record = state.get("cmd-1")
-    assert record.status == CommandStatus.running
-    assert record.updated_at >= record.created_at
+    state.submit(_pc(slug="X"))
+    with pytest.raises(StillLive):
+        state.reap("X")
 
 
-def test_set_completed():
+def test_reap_unknown_raises() -> None:
     state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.set_running("cmd-1")
-    result = PhoneCommandResult(
-        command_id="cmd-1",
-        steps=[ProcessResult(exit_code=0, stdout="ok", stderr="")],
-    )
-    state.set_completed("cmd-1", result=result)
-    record = state.get("cmd-1")
-    assert record.status == CommandStatus.completed
-    assert record.result == result
-
-
-def test_set_failed():
-    state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.set_running("cmd-1")
-    state.set_failed("cmd-1", error="boom")
-    record = state.get("cmd-1")
-    assert record.status == CommandStatus.failed
-    assert record.error == "boom"
-
-
-def test_set_cancelled():
-    state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.set_running("cmd-1")
-    state.set_cancelled("cmd-1")
-    assert state.get("cmd-1").status == CommandStatus.cancelled
-
-
-def test_set_daemon_started():
-    state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    handle = PhoneCommandDaemonHandle(command_id="cmd-1", handle_id="h-1")
-    state.set_daemon_started("cmd-1", handle=handle)
-    record = state.get("cmd-1")
-    assert record.daemon_handle == handle
-
-
-def test_set_daemon_ended():
-    state = PhoneState()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    handle = PhoneCommandDaemonHandle(command_id="cmd-1", handle_id="h-1")
-    state.set_daemon_started("cmd-1", handle=handle)
-    state.set_daemon_ended("h-1")
-    assert state.get("cmd-1").status == CommandStatus.completed
-
-
-def test_set_daemon_ended_unknown_handle():
-    state = PhoneState()
-    state.set_daemon_ended("ghost")  # should not raise
+    with pytest.raises(UnknownSlug):
+        state.reap("nope")
 
 
 # --- subscriptions ---
 
 
-def test_subscribe_receives_events():
+def test_phone_subscriber_sees_created_on_submit() -> None:
     state = PhoneState()
-    queue = state.subscribe()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    assert not queue.empty()
-    event = queue.get_nowait()
-    assert event.type == "command_submitted"
-    assert event.command_id == "cmd-1"
+    q = state.subscribe()
+    state.submit(_pc(slug="X"))
+    assert not q.empty()
+    ev = q.get_nowait()
+    assert ev.type == "created"
+    assert ev.slug == "X"
 
 
-def test_multiple_transitions_emit_events():
+def test_phone_subscriber_sees_events_from_multiple_runs() -> None:
     state = PhoneState()
-    queue = state.subscribe()
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    state.set_running("cmd-1")
-    state.set_failed("cmd-1", error="oops")
-    types = []
-    while not queue.empty():
-        types.append(queue.get_nowait().type)
-    assert types == ["command_submitted", "command_running", "command_failed"]
+    q = state.subscribe()
+    state.submit(_pc(slug="a"))
+    state.submit(_pc(slug="b"))
+    seen: list[str] = []
+    while not q.empty():
+        seen.append(q.get_nowait().slug)
+    assert "a" in seen and "b" in seen
 
 
-def test_unsubscribe_stops_events():
+def test_phone_subscriber_sees_run_transitions() -> None:
     state = PhoneState()
-    queue = state.subscribe()
-    state.unsubscribe(queue)
-    state.create(command_id="cmd-1", phone_command=_make_pc())
-    assert queue.empty()
+    q = state.subscribe()
+    state.submit(_pc(slug="X"))
+    run = state.get("X")
+    assert run is not None
+    run.emit(RunStateRunning(slug="X", at=time.time()))
+    types: list[str] = []
+    while not q.empty():
+        types.append(q.get_nowait().type)
+    assert types == ["created", "running"]
 
 
-def test_unsubscribe_unknown_queue():
+def test_unsubscribe_stops_delivery() -> None:
+    state = PhoneState()
+    q = state.subscribe()
+    state.unsubscribe(q)
+    state.submit(_pc(slug="X"))
+    assert q.empty()
+
+
+def test_unsubscribe_unknown_queue_is_noop() -> None:
     state = PhoneState()
     state.unsubscribe(asyncio.Queue())  # should not raise

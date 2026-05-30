@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncGenerator
 
-from fastapi import FastAPI
 import ihate_work.o11y as o11y
+from fastapi import FastAPI
 
-from xumret.server.api import events, routes
 from xumret.protocol.service import XumretService
+from xumret.server.api import events, routes
 
 logger, *_ = o11y.get_o11y(__name__)
 
@@ -20,7 +20,7 @@ WEBUI_DIR = Path(__file__).resolve().parents[4] / "webui-assets"
 def create_app(*, service: XumretService) -> FastAPI:
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         yield
         logger.info("server shutting down, cleaning up")
         if hasattr(service, "shutdown"):

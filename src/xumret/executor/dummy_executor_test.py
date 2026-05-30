@@ -4,193 +4,116 @@ import asyncio
 import json
 
 from xumret.executor.dummy_executor import DummyExecutor
-from xumret.executor.models import PhoneCommand, ProcessStep
-from xumret.server_bridge.models import (
-    CancelCommand,
-    EndDaemon,
-    QueryDaemon,
-    QueryStatus,
-    SubmitCommand,
-    SubmitDaemonStarted,
-    SubmitOneshotResult,
+from xumret.executor.models import (
+    CommandStep,
+    PhoneCommand,
+    StreamConfig,
 )
+from xumret.state.models import (
+    RunOutputEvent,
+    RunStateCompleted,
+    RunStateStepExited,
+    RunStateStepStarted,
+    RunStatus,
+)
+from xumret.state.run import Run
 
 
-def _make_submit(
-    command_id: str = "cmd-1",
-    daemon: bool = False,
-    argv: list[str] | None = None,
-    steps: int = 1,
-) -> SubmitCommand:
+def _captured(argv: list[str]) -> CommandStep:
+    return CommandStep(argv=argv, stdout_stream=StreamConfig(capture=True))
+
+
+def _run(*, argv: list[str] | None = None, steps: int = 1, capture: bool = True) -> Run:
     if argv is not None:
-        step_list = [ProcessStep(argv=argv)]
+        step_list = [_captured(argv) if capture else CommandStep(argv=argv)]
     else:
-        step_list = [ProcessStep(argv=["echo", "hi"]) for _ in range(steps)]
-    return SubmitCommand(
-        command_id=command_id,
-        phone_command=PhoneCommand(
-            name="test",
-            steps=step_list,
-            connections=[],
-            daemon=daemon,
-        ),
-    )
+        make = _captured if capture else (lambda a: CommandStep(argv=a))
+        step_list = [make(["echo", "hi"]) for _ in range(steps)]
+    pc = PhoneCommand(name="t", steps=step_list)
+    return Run(slug="s", phone_command=pc)
 
 
-def test_oneshot_returns_result() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(steps=2))
-        assert isinstance(resp, SubmitOneshotResult)
-        assert resp.result.command_id == "cmd-1"
-        assert len(resp.result.steps) == 2
-        for step in resp.result.steps:
-            assert step.exit_code == 0
-
-    asyncio.run(run())
+def _types(run: Run) -> list[str]:
+    return [t.type for t in run.record.transitions]
 
 
-def test_canned_battery_status() -> None:
-    executor = DummyExecutor()
+def test_oneshot_emits_running_through_completed() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(steps=2, capture=False)
+        await ex.run(run)
+        assert run.status == RunStatus.completed
+        types = _types(run)
+        assert types[0] == "running"
+        assert types.count("step_started") == 2
+        assert types.count("step_exited") == 2
+        assert types[-1] == "completed"
+    asyncio.run(go())
 
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(argv=["termux-battery-status"]))
-        assert isinstance(resp, SubmitOneshotResult)
-        data = json.loads(resp.result.steps[0].stdout)
+
+def test_canned_battery_status_emits_output() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(argv=["termux-battery-status"])
+        await ex.run(run)
+        tail = run.record.steps[0].stdout_tail
+        data = json.loads(tail)
         assert data["percentage"] == 72
-        assert data["plugged"] == "UNPLUGGED"
-
-    asyncio.run(run())
+    asyncio.run(go())
 
 
-def test_canned_sms_list() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(argv=["termux-sms-list"]))
-        assert isinstance(resp, SubmitOneshotResult)
-        data = json.loads(resp.result.steps[0].stdout)
-        assert len(data) == 2
-        assert data[0]["type"] == "inbox"
-
-    asyncio.run(run())
-
-
-def test_silent_command_returns_empty() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(argv=["termux-toast", "hello"]))
-        assert isinstance(resp, SubmitOneshotResult)
-        assert resp.result.steps[0].stdout == ""
-
-    asyncio.run(run())
+def test_silent_command_emits_no_output() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(argv=["termux-toast", "hello"])
+        await ex.run(run)
+        assert run.record.steps[0].stdout_tail == ""
+        assert run.status == RunStatus.completed
+    asyncio.run(go())
 
 
 def test_unknown_binary_returns_stub() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(argv=["my-script", "--flag"]))
-        assert isinstance(resp, SubmitOneshotResult)
-        data = json.loads(resp.result.steps[0].stdout)
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(argv=["my-script", "--flag"])
+        await ex.run(run)
+        data = json.loads(run.record.steps[0].stdout_tail)
         assert data["dummy"] is True
         assert data["argv"] == ["my-script", "--flag"]
-
-    asyncio.run(run())
-
-
-def test_daemon_returns_handle() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(daemon=True))
-        assert isinstance(resp, SubmitDaemonStarted)
-        assert resp.handle.command_id == "cmd-1"
-        assert resp.handle.handle_id
-
-    asyncio.run(run())
+    asyncio.run(go())
 
 
-def test_cancel_records_command() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        await executor.cancel(CancelCommand(command_id="cmd-1"))
-        assert "cmd-1" in executor._cancelled
-
-    asyncio.run(run())
-
-
-def test_query_status_found() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(daemon=True))
-        assert isinstance(resp, SubmitDaemonStarted)
-        status = await executor.query_status(QueryStatus(command_id="cmd-1"))
-        assert status.status.all_running is True
-
-    asyncio.run(run())
+def test_capture_disabled_means_no_output_event() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(argv=["termux-battery-status"], capture=False)
+        await ex.run(run)
+        assert run.record.steps[0].stdout_tail == ""
+        assert run.status == RunStatus.completed
+    asyncio.run(go())
 
 
-def test_query_status_not_found() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.query_status(QueryStatus(command_id="no-such"))
-        assert resp.error == "not_found"
-
-    asyncio.run(run())
-
-
-def test_query_daemon_found() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(daemon=True))
-        assert isinstance(resp, SubmitDaemonStarted)
-        status = await executor.query_daemon(QueryDaemon(handle_id=resp.handle.handle_id))
-        assert status.status.all_running is True
-
-    asyncio.run(run())
+def test_subscriber_sees_step_events_in_order() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        run = _run(argv=["termux-battery-status"])
+        q = run.subscribe()
+        await ex.run(run)
+        seen: list[type] = []
+        while not q.empty():
+            seen.append(type(q.get_nowait()))
+        assert RunStateStepStarted in seen
+        assert RunOutputEvent in seen
+        assert RunStateStepExited in seen
+        assert RunStateCompleted in seen
+        ss = seen.index(RunStateStepStarted)
+        se = seen.index(RunStateStepExited)
+        assert ss < se
+    asyncio.run(go())
 
 
-def test_query_daemon_not_found() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        status = await executor.query_daemon(QueryDaemon(handle_id="ghost"))
-        assert status.status.all_running is False
-        assert status.status.steps == []
-
-    asyncio.run(run())
-
-
-def test_end_daemon() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        resp = await executor.submit(_make_submit(daemon=True))
-        assert isinstance(resp, SubmitDaemonStarted)
-        handle_id = resp.handle.handle_id
-
-        ended = await executor.end_daemon(EndDaemon(handle_id=handle_id))
-        assert ended.handle_id == handle_id
-
-        status = await executor.query_daemon(QueryDaemon(handle_id=handle_id))
-        assert status.status.all_running is False
-
-    asyncio.run(run())
-
-
-def test_end_daemon_unknown() -> None:
-    executor = DummyExecutor()
-
-    async def run() -> None:
-        ended = await executor.end_daemon(EndDaemon(handle_id="nope"))
-        assert ended.handle_id == "nope"
-        assert ended.final_steps == []
-
-    asyncio.run(run())
+def test_stop_unknown_slug_is_noop() -> None:
+    async def go() -> None:
+        ex = DummyExecutor()
+        await ex.stop("nope")
+    asyncio.run(go())

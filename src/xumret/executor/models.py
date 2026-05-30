@@ -2,80 +2,76 @@
 
 A PhoneCommand defines a pipeline of one or more processes and how they connect.
 
-Two variants controlled by the `daemon` flag:
-- One-shot (daemon=False, default): runs the pipeline, waits for all processes to exit,
-  returns PhoneCommandResult with exit codes and outputs.
-- Daemon (daemon=True): starts the pipeline and returns PhoneCommandDaemonHandle immediately.
-  The handle can be queried for latest status, or used to end the processes.
+Lifecycle is uniform: pending → running → completed / failed / cancelled.
+`RunOption.timeout` bounds how long the pipeline may run; absence means "no
+time bound" — which, combined with `mutex_by_slug`, is how callers express
+daemon-like commands (the frontend uses that combo as a UI heuristic).
+
+The executor emits per-step events; consumers observe the run through the
+`Run` abstraction (see `xumret.state.run`).
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-# --- Pipeline definition ---
+class StreamConfig(BaseModel):
+    """How to handle one stream of a step.
+
+    Two options that can mix:
+    - forward to another step's stdin (`forward_dest_process_idx`)
+    - capture via temp file on the executor (expected use: to reap the last
+      step, or to debug). Never piped into executor memory.
+
+    A stream that is neither captured nor forwarded is implicitly dropped.
+    """
+
+    mode: Literal["lines", "binary"] = "lines"
+    # capture: executor writes the stream to a temp file and surfaces it in events.
+    capture: bool = False
+    # forward to stdin of steps[forward_dest_process_idx].
+    # Executor validates that the resulting graph is well-formed.
+    forward_dest_process_idx: int | None = None
 
 
-class ProcessStep(BaseModel):
+class CommandStep(BaseModel):
+    """One process in a pipeline."""
+
     argv: list[str]
+    stdout_stream: StreamConfig = StreamConfig()
+    stderr_stream: StreamConfig = StreamConfig()
 
 
-class Pipe(BaseModel):
-    """stdout of previous step -> stdin of next step."""
+class RunOption(BaseModel):
+    """Caller-declared policy for a Run. TODO: rename to RunConfig"""
 
-    type: Literal["pipe"] = "pipe"
-
-
-class TempFile(BaseModel):
-    """Previous step writes to a temp file, next step reads it."""
-
-    type: Literal["temp_file"] = "temp_file"
-
-
-Connection = Pipe | TempFile
-# future: NamedPipe, Socket, ...
+    # timeout: max wall-clock seconds before the executor cancels the run.
+    # None = no time bound. (mutex_by_slug + timeout=None is the daemon shape.)
+    timeout: float | None = None
+    # slug: a caller-provided identifier for the run
+    # can be used to dedup commands that don't need multiple running instances
+    slug: str | None = None
+    # when True: don't run the command if another live run exists with the same slug; instead raise SubmitConflict.
+    mutex_by_slug: bool = False
+    # cache_for: stale-while-revalidate window in seconds. Requires `slug`.
+    # On submit, if a `completed` terminal run with the same slug exists and is
+    # younger than `cache_for`, that record is returned without re-running
+    # (fresh hit). If older, the terminal is implicitly reaped and a fresh run
+    # is spawned (stale → revalidate). Failed/cancelled/timed_out terminals
+    # are NOT cached; they still require explicit reap. Most-recent-wins:
+    # the freshness threshold comes from the current submit's value.
+    # See doc/design-process-management.md "Submit decision matrix" for the
+    # full table including cache_for × mutex_by_slug interactions.
+    cache_for: float | None = Field(default=None, gt=0)
 
 
 class PhoneCommand(BaseModel):
+    # name: non-unique title
     name: str
-    steps: list[ProcessStep]  # 1 or more processes
-    connections: list[Connection]  # len == len(steps) - 1
-    daemon: bool = False
-
-
-# --- One-shot result (returned after all processes exit) ---
-
-
-class ProcessResult(BaseModel):
-    exit_code: int
-    stdout: str
-    stderr: str
-
-
-class PhoneCommandResult(BaseModel):
-    command_id: str
-    steps: list[ProcessResult]  # one per ProcessStep
-
-
-# --- Daemon handle (returned immediately when daemon=True) ---
-
-
-class PhoneCommandDaemonHandle(BaseModel):
-    command_id: str
-    handle_id: str
-
-
-class DaemonProcessStatus(BaseModel):
-    running: bool
-    exit_code: int | None = None  # None while running
-    stdout_tail: str = ""  # latest output
-    stderr_tail: str = ""
-
-
-class DaemonStatus(BaseModel):
-    handle_id: str
-    steps: list[DaemonProcessStatus]  # one per ProcessStep
-    all_running: bool
+    # desc: non-unique longer description
+    desc: str | None = None
+    steps: list[CommandStep]
+    run_option: RunOption = RunOption()

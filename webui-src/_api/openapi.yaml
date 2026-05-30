@@ -1,0 +1,625 @@
+openapi: 3.1.0
+info:
+  title: xumret
+  version: 0.1.0
+paths:
+  /api/devices:
+    get:
+      summary: List Devices
+      operationId: list_devices_api_devices_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/Device'
+                type: array
+                title: Response List Devices Api Devices Get
+  /api/runs:
+    get:
+      summary: List Runs
+      operationId: list_runs_api_runs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/RunRecord'
+                type: array
+                title: Response List Runs Api Runs Get
+    post:
+      summary: Submit Run
+      operationId: submit_run_api_runs_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}:
+    get:
+      summary: Get Run
+      operationId: get_run_api_runs__slug__get
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}/state:
+    get:
+      summary: Get Run State
+      operationId: get_run_state_api_runs__slug__state_get
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}/stop:
+    post:
+      summary: Stop Run
+      operationId: stop_run_api_runs__slug__stop_post
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunRecord'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}/steps/{step_index}/stdout:
+    get:
+      summary: Get Step Stdout
+      description: 'Return the full captured stdout for one step.
+
+
+        Unlike `Run.steps[i].stdout_tail` (a 128 KiB tail for live observation),
+
+        this returns the entire captured payload, suitable for one-shot query
+
+        commands whose stdout *is* the result.'
+      operationId: get_step_stdout_api_runs__slug__steps__step_index__stdout_get
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      - name: step_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Step Index
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/plain:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}/reap:
+    post:
+      summary: Reap Run
+      operationId: reap_run_api_runs__slug__reap_post
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reap Run Api Runs  Slug  Reap Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/events:
+    get:
+      summary: Event Stream
+      operationId: event_stream_api_events_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+components:
+  schemas:
+    CommandStep:
+      properties:
+        argv:
+          items:
+            type: string
+          type: array
+          title: Argv
+        stdout_stream:
+          $ref: '#/components/schemas/StreamConfig'
+          default:
+            mode: lines
+            capture: false
+        stderr_stream:
+          $ref: '#/components/schemas/StreamConfig'
+          default:
+            mode: lines
+            capture: false
+      type: object
+      required:
+      - argv
+      title: CommandStep
+      description: One process in a pipeline.
+    Device:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+      type: object
+      required:
+      - id
+      - name
+      title: Device
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    PhoneCommand-Input:
+      properties:
+        name:
+          type: string
+          title: Name
+        desc:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Desc
+        steps:
+          items:
+            $ref: '#/components/schemas/CommandStep'
+          type: array
+          title: Steps
+        run_option:
+          $ref: '#/components/schemas/RunOption'
+          default:
+            mutex_by_slug: false
+      type: object
+      required:
+      - name
+      - steps
+      title: PhoneCommand
+    PhoneCommand-Output:
+      properties:
+        name:
+          type: string
+          title: Name
+        desc:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Desc
+        steps:
+          items:
+            $ref: '#/components/schemas/CommandStep'
+          type: array
+          title: Steps
+        run_option:
+          $ref: '#/components/schemas/RunOption'
+          default:
+            mutex_by_slug: false
+      type: object
+      required:
+      - name
+      - steps
+      title: PhoneCommand
+    RunOption:
+      properties:
+        timeout:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Timeout
+        slug:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Slug
+        mutex_by_slug:
+          type: boolean
+          title: Mutex By Slug
+          default: false
+        cache_for:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Cache For
+      type: object
+      title: RunOption
+      description: 'Caller-declared policy for a Run. TODO: rename to RunConfig'
+    RunRecord:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        phone_command:
+          $ref: '#/components/schemas/PhoneCommand-Output'
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        created_at:
+          type: number
+          title: Created At
+        updated_at:
+          type: number
+          title: Updated At
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        steps:
+          items:
+            $ref: '#/components/schemas/StepState'
+          type: array
+          title: Steps
+        transitions:
+          items:
+            anyOf:
+            - $ref: '#/components/schemas/RunStateCreated'
+            - $ref: '#/components/schemas/RunStateStepStarted'
+            - $ref: '#/components/schemas/RunStateStepExited'
+            - $ref: '#/components/schemas/RunStateRunning'
+            - $ref: '#/components/schemas/RunStateCompleted'
+            - $ref: '#/components/schemas/RunStateFailed'
+            - $ref: '#/components/schemas/RunStateCancelled'
+            - $ref: '#/components/schemas/RunStateTimedOut'
+          type: array
+          title: Transitions
+          default: []
+      type: object
+      required:
+      - slug
+      - phone_command
+      - status
+      - created_at
+      - updated_at
+      - steps
+      title: RunRecord
+      description: Materialized snapshot of a Run; also serves as the API response
+        shape.
+    RunStateCancelled:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: cancelled
+          title: Type
+          default: cancelled
+      type: object
+      required:
+      - slug
+      - at
+      title: RunStateCancelled
+    RunStateCompleted:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: completed
+          title: Type
+          default: completed
+      type: object
+      required:
+      - slug
+      - at
+      title: RunStateCompleted
+    RunStateCreated:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: created
+          title: Type
+          default: created
+      type: object
+      required:
+      - slug
+      - at
+      title: RunStateCreated
+    RunStateFailed:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: failed
+          title: Type
+          default: failed
+        error:
+          type: string
+          title: Error
+      type: object
+      required:
+      - slug
+      - at
+      - error
+      title: RunStateFailed
+    RunStateRunning:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: running
+          title: Type
+          default: running
+      type: object
+      required:
+      - slug
+      - at
+      title: RunStateRunning
+    RunStateStepExited:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: step_exited
+          title: Type
+          default: step_exited
+        step_index:
+          type: integer
+          title: Step Index
+        exit_code:
+          type: integer
+          title: Exit Code
+      type: object
+      required:
+      - slug
+      - at
+      - step_index
+      - exit_code
+      title: RunStateStepExited
+    RunStateStepStarted:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: step_started
+          title: Type
+          default: step_started
+        step_index:
+          type: integer
+          title: Step Index
+        pid:
+          type: integer
+          title: Pid
+      type: object
+      required:
+      - slug
+      - at
+      - step_index
+      - pid
+      title: RunStateStepStarted
+    RunStateTimedOut:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        at:
+          type: number
+          title: At
+        type:
+          type: string
+          const: timed_out
+          title: Type
+          default: timed_out
+      type: object
+      required:
+      - slug
+      - at
+      title: RunStateTimedOut
+    RunStatus:
+      type: string
+      enum:
+      - pending
+      - running
+      - completed
+      - failed
+      - cancelled
+      - timed_out
+      title: RunStatus
+    StepState:
+      properties:
+        pid:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Pid
+        exit_code:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Exit Code
+        stdout_tail:
+          type: string
+          title: Stdout Tail
+          default: ''
+        stderr_tail:
+          type: string
+          title: Stderr Tail
+          default: ''
+      type: object
+      title: StepState
+    StreamConfig:
+      properties:
+        mode:
+          type: string
+          enum:
+          - lines
+          - binary
+          title: Mode
+          default: lines
+        capture:
+          type: boolean
+          title: Capture
+          default: false
+        forward_dest_process_idx:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Forward Dest Process Idx
+      type: object
+      title: StreamConfig
+      description: "How to handle one stream of a step.\n\nTwo options that can mix:\n\
+        - forward to another step's stdin (`forward_dest_process_idx`)\n- capture\
+        \ via temp file on the executor (expected use: to reap the last\n  step, or\
+        \ to debug). Never piped into executor memory.\n\nA stream that is neither\
+        \ captured nor forwarded is implicitly dropped."
+    SubmitRequest:
+      properties:
+        phone_command:
+          $ref: '#/components/schemas/PhoneCommand-Input'
+      type: object
+      required:
+      - phone_command
+      title: SubmitRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

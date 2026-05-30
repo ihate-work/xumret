@@ -1,4 +1,9 @@
 
+# Local-only overrides / secrets (host IPs, tokens, ...). Required — copy
+# Makefile.var.template → Makefile.var and edit. We require it so missing
+# config fails loudly instead of silently producing wrong commands.
+include Makefile.var
+
 default: runtime-deps
 	@echo "deps installed"
 
@@ -24,7 +29,16 @@ test-watch: deps
 	. venv/bin/activate && exec pytest-watcher $(PY_CODE_ROOTS)
 
 webui-dev: deps
-	npx vite --host
+	REMOTE_ADDR='$(REMOTE_ADDR)' npx vite --host
+
+webui-prod-build: deps
+	npm run build
+
+# Export the FastAPI OpenAPI schema to webui-src/_api/openapi.yaml
+# and regenerate the TypeScript client in webui-src/_api/generated/
+openapi: deps
+	venv/bin/python -m xumret dev-openapi -o webui-src/_api/openapi.yaml
+	npm run generate:api
 
 # Run client connecting to localhost (for local dev)
 client-local: runtime-deps
@@ -33,6 +47,10 @@ client-local: runtime-deps
 # Run server in dev mode (listens on all interfaces)
 server-dev: runtime-deps
 	OTEL_SERVICE_NAME=xumret-server venv/bin/python -m xumret server --host 0.0.0.0 --port 8765
+
+# Run `./xumret single --dummy` with auto-reload on src/*.py changes
+single-dev: deps
+	venv/bin/watchmedo auto-restart -d src -p '*.py' -R -- ./xumret single --dummy
 
 ###
 ### SECTION deps
@@ -49,7 +67,9 @@ REQUIREMENTS_DEV = -r requirements-dev.txt -r requirements.txt
 # first index that has a package, and the Termux index ships android-only wheels.
 EXTRA_INDEX := $(if $(filter Android,$(shell uname -o 2>/dev/null)),--extra-index-url https://termux-user-repository.github.io/pypi)
 
-UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install '--only-binary=:all:' --no-binary=ihate-work --exclude-newer-package 'ihate-work=2030-01-01' $(EXTRA_INDEX)
+UV_PIP_INSTALL = UV_PYTHON=venv UV_LINK_MODE=symlink uv pip install '--only-binary=:all:' --no-binary=watchdog --no-binary=ihate-work --no-binary=pur \
+	--exclude-newer-package 'ihate-work=2030-01-01' \
+	$(EXTRA_INDEX)
 
 # Default developer-facing deps: install dev + runtime deps
 deps: Makefile venv/.dev_deps_installed
@@ -57,16 +77,24 @@ deps: Makefile venv/.dev_deps_installed
 # Runtime-only deps (for running server/client in minimal env)
 runtime-deps: Makefile venv/.deps_installed
 
-venv/.deps_installed: venv/.venv_created requirements.txt
+venv/.deps_installed: venv/.venv_created requirements.txt pyproject.toml
 	$(UV_PIP_INSTALL) $(REQUIREMENTS_RUNTIME)
 	@echo "runtime deps installed"
 	@touch $@
 
-venv/.dev_deps_installed: venv/.venv_created requirements.txt requirements-dev.txt package.json package-lock.json
+venv/.dev_deps_installed: venv/.venv_created requirements.txt requirements-dev.txt pyproject.toml package.json package-lock.json
 	$(UV_PIP_INSTALL) $(REQUIREMENTS_DEV)
 	npm ci
 	@echo "dev deps installed"
 	@touch $@
+
+# comma separated packages to skip during upgrade
+FREEZE_PY_REQ =
+
+upgrade-deps:
+	for f in requirements.txt requirements-dev.txt; do \
+		venv/bin/pur -r $$f --force --cooldown-days=9 --skip=$(FREEZE_PY_REQ); \
+	done
 
 venv: venv/.venv_created
 

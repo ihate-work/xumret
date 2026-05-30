@@ -1,124 +1,144 @@
-"""PhoneState — pure state container for one phone's commands.
+"""PhoneState — slug-keyed registry of Runs for one phone.
 
-Sync methods only. Holds CommandRecords, applies transitions, emits SSE events.
-No executor, no orchestration logic.
+Holds `slug → Run`. Implements the submit decision matrix
+(see `doc/design-process-management.md`):
+
+| slug   | mutex_by_slug | cache_for | existing run        | result               |
+|--------|---------------|-----------|---------------------|----------------------|
+| None   | n/a           | n/a       | n/a                 | new run              |
+| "X"    | any           | any       | none                | new run              |
+| "X"    | False         | any       | live                | join existing        |
+| "X"    | True          | any       | live                | 409 (live-mutex)     |
+| "X"    | any           | None      | terminal (any)      | 409 (terminal-unreaped) |
+| "X"    | any           | N         | terminal, failed*   | 409 (terminal-unreaped) |
+| "X"    | any           | N         | terminal, completed, age ≤ N | return cached |
+| "X"    | any           | N         | terminal, completed, age > N | implicit reap → new run |
+
+*"failed" here covers `failed`, `cancelled`, and `timed_out` — every terminal
+status except `completed`. Failures are never cached; the client must
+acknowledge them with an explicit reap.
+
+Phone-wide subscribers see every event from every run via a sync listener
+hook on each Run, so the broadcast path needs no running event loop.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 
 import ihate_work.o11y as o11y
 
-from xumret.executor.models import PhoneCommand, PhoneCommandDaemonHandle, PhoneCommandResult
-from xumret.state.models import CommandRecord, CommandStatus, StateEvent
+from xumret.executor.models import PhoneCommand
+from xumret.state.models import RunEvent, RunStateCreated, RunStatus
+from xumret.state.run import Run
 
 logger, *_ = o11y.get_o11y(__name__)
 
 
+class SubmitConflict(Exception):
+    """Slug already in use; client must reap or pick a different slug."""
+
+    def __init__(self, slug: str, *, reason: str) -> None:
+        super().__init__(f"slug {slug!r} conflict: {reason}")
+        self.slug = slug
+        self.reason = reason
+
+
+class UnknownSlug(Exception):
+    def __init__(self, slug: str) -> None:
+        super().__init__(f"unknown slug: {slug!r}")
+        self.slug = slug
+
+
+class StillLive(Exception):
+    """Reap attempted on a still-live run."""
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(f"slug {slug!r} is still live; stop it first")
+        self.slug = slug
+
+
 class PhoneState:
     def __init__(self) -> None:
-        self._commands: dict[str, CommandRecord] = {}
-        self._daemon_to_command: dict[str, str] = {}
-        self._subscribers: list[asyncio.Queue[StateEvent]] = []
+        self._runs: dict[str, Run] = {}
+        self._subscribers: list[asyncio.Queue[RunEvent]] = []
 
     # --- queries ---
 
-    def get(self, command_id: str) -> CommandRecord | None:
-        return self._commands.get(command_id)
+    def get(self, slug: str) -> Run | None:
+        return self._runs.get(slug)
 
-    def list(self) -> list[CommandRecord]:
-        return list(self._commands.values())
+    def list(self) -> list[Run]:
+        return list(self._runs.values())
 
     # --- mutations ---
 
-    def create(self, *, command_id: str, phone_command: PhoneCommand) -> CommandRecord:
-        now = time.time()
-        record = CommandRecord(
-            command_id=command_id,
-            phone_command=phone_command,
-            created_at=now,
-            updated_at=now,
-        )
-        self._commands[command_id] = record
-        self._emit("command_submitted", record)
-        return record
+    def submit(self, phone_command: PhoneCommand) -> Run:
+        opt = phone_command.run_option
+        if opt.slug is not None:
+            existing = self._runs.get(opt.slug)
+            if existing is not None:
+                if existing.is_terminal:
+                    # cache_for turns a successful unreaped terminal into a
+                    # cache entry instead of a 409 — fresh ⇒ serve cached,
+                    # stale ⇒ implicit reap and spawn fresh. Failures are
+                    # never cached.
+                    if (
+                        opt.cache_for is not None
+                        and existing.status == RunStatus.completed
+                    ):
+                        age = time.time() - existing.record.updated_at
+                        if age <= opt.cache_for:
+                            return existing
+                        del self._runs[opt.slug]
+                    else:
+                        raise SubmitConflict(opt.slug, reason="terminal-unreaped")
+                else:
+                    # live
+                    if opt.mutex_by_slug:
+                        raise SubmitConflict(opt.slug, reason="live-mutex")
+                    return existing  # idempotent join
+            slug = opt.slug
+        else:
+            slug = uuid.uuid4().hex
 
-    def set_running(self, command_id: str) -> None:
-        record = self._commands[command_id]
-        record.status = CommandStatus.running
-        record.updated_at = time.time()
-        logger.debug("state transition", command_id=command_id, status="running")
-        self._emit("command_running", record)
+        run = Run(slug=slug, phone_command=phone_command, on_event=self._broadcast)
+        self._runs[slug] = run
+        run.emit(RunStateCreated(slug=slug, at=time.time()))
+        return run
 
-    def set_completed(self, command_id: str, *, result: PhoneCommandResult) -> None:
-        record = self._commands[command_id]
-        record.status = CommandStatus.completed
-        record.result = result
-        record.updated_at = time.time()
-        logger.info("state transition", command_id=command_id, status="completed")
-        self._emit("command_completed", record)
+    def reap(self, slug: str) -> None:
+        run = self._runs.get(slug)
+        if run is None:
+            raise UnknownSlug(slug)
+        if run.is_live:
+            raise StillLive(slug)
+        del self._runs[slug]
 
-    def set_failed(self, command_id: str, *, error: str) -> None:
-        record = self._commands[command_id]
-        record.status = CommandStatus.failed
-        record.error = error
-        record.updated_at = time.time()
-        logger.warning("state transition", command_id=command_id, status="failed", error=error)
-        self._emit("command_failed", record)
+    # --- subscriptions (phone-wide fan-out) ---
 
-    def set_cancelled(self, command_id: str) -> None:
-        record = self._commands[command_id]
-        record.status = CommandStatus.cancelled
-        record.updated_at = time.time()
-        logger.info("state transition", command_id=command_id, status="cancelled")
-        self._emit("command_cancelled", record)
+    def subscribe(self) -> asyncio.Queue[RunEvent]:
+        q: asyncio.Queue[RunEvent] = asyncio.Queue()
+        self._subscribers.append(q)
+        return q
 
-    def set_daemon_started(
-        self, command_id: str, *, handle: PhoneCommandDaemonHandle
-    ) -> None:
-        record = self._commands[command_id]
-        record.daemon_handle = handle
-        record.updated_at = time.time()
-        self._daemon_to_command[handle.handle_id] = command_id
-        logger.info("state transition", command_id=command_id, status="daemon_started",
-                     handle_id=handle.handle_id)
-        self._emit("daemon_started", record)
-
-    def set_daemon_ended(self, handle_id: str) -> None:
-        command_id = self._daemon_to_command.get(handle_id)
-        if command_id and command_id in self._commands:
-            record = self._commands[command_id]
-            record.status = CommandStatus.completed
-            record.updated_at = time.time()
-            logger.info("state transition", command_id=command_id, status="daemon_ended",
-                         handle_id=handle_id)
-            self._emit("daemon_ended", record)
-
-    # --- SSE subscriptions ---
-
-    def subscribe(self) -> asyncio.Queue[StateEvent]:
-        queue: asyncio.Queue[StateEvent] = asyncio.Queue()
-        self._subscribers.append(queue)
-        return queue
-
-    def unsubscribe(self, queue: asyncio.Queue[StateEvent]) -> None:
+    def unsubscribe(self, q: asyncio.Queue[RunEvent]) -> None:
         try:
-            self._subscribers.remove(queue)
+            self._subscribers.remove(q)
         except ValueError:
             pass
 
     # --- internal ---
 
-    def _emit(self, event_type: str, record: CommandRecord) -> None:
-        event = StateEvent(
-            type=event_type,
-            command_id=record.command_id,
-            data=record.model_dump(),
-        )
-        for queue in self._subscribers:
+    def _broadcast(self, event: RunEvent) -> None:
+        for q in list(self._subscribers):
             try:
-                queue.put_nowait(event)
+                q.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                try:
+                    q.get_nowait()
+                    q.put_nowait(event)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    pass

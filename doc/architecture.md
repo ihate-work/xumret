@@ -102,23 +102,20 @@ WebUI ──HTTP──>  │  api ──Depends──> SingleMain ──> LocalE
 
 The HTTP API served by `api/` is the same in both modes. The WebUI does not know which mode is running.
 
-```
-POST   /api/commands          submit a command
-GET    /api/commands           list commands + status
-GET    /api/commands/{id}      get single command status
-DELETE /api/commands/{id}      cancel a command
-GET    /api/events             SSE stream of real-time updates
-```
+Source of truth is the FastAPI app; the OpenAPI spec is exported to
+`webui-src/_api/openapi.yaml` via `make openapi`. Current shape (devices,
+runs lifecycle, SSE) and the frontend SDK pipeline are documented in
+[`ui_api.md`](ui_api.md).
 
 ## Implementation order
 
-1. **Single mode first**: `api/`, `state/`, `executor/local.py`, `executor/models.py`, `server_bridge/models.py`, `executor/protocol.py`
+1. **Single mode first**: `api/`, `state/`, `executor/local_executor.py`, `executor/models.py`, `server_bridge/models.py`, `executor/protocol.py`
 2. **Server-executor mode**: `server_bridge/ws.py`, `executor/agent.py`, `RemoteExecutor`
 3. **WebUI**: build out `xumret-controller` against the HTTP API
 
 ## WebUI
 
-Source in `webui-src/`, built output in `webui-assets/`. React + TypeScript + PrimeReact. Talks to the API over HTTP + SSE. Same frontend regardless of mode.
+Source in `webui-src/`, built output in `webui-assets/`. React + TypeScript + PrimeReact. Talks to the API over HTTP + SSE through a generated SDK and a thin SWR-backed hook layer; see [`ui_api.md`](ui_api.md). Same frontend regardless of mode.
 
 ### Mechanism vs policy
 

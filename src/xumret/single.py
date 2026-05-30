@@ -1,30 +1,32 @@
 """SingleMain — single mode orchestrator.
 
-Implements XumretService. Owns one Executor and one PhoneState.
-Accepts commands, runs them in background tasks, drives state transitions.
+Implements `XumretService`. Owns one `LocalExecutor` (or `DummyExecutor`)
+and one `PhoneState`. Submitting a `PhoneCommand` registers a `Run` in
+`PhoneState` and hands it to the executor as a background task.
+
+`SingleMain` and `PhoneState` are independent — a future multi-device
+orchestrator (`HubMain`) will hold many `PhoneState`s.
 """
 
 from __future__ import annotations
 
 import asyncio
-import uuid
+import socket
+import time
 
 import ihate_work.o11y as o11y
 
 from xumret.executor.models import PhoneCommand
+from xumret.protocol.device import Device
 from xumret.protocol.executor import Executor
-from xumret.server_bridge.models import (
-    CancelCommand,
-    DaemonEnded,
-    DaemonStatusReport,
-    EndDaemon,
-    QueryDaemon,
-    SubmitCommand,
-    SubmitDaemonStarted,
-    SubmitOneshotResult,
+from xumret.state.models import RunEvent, RunRecord, RunStateFailed
+from xumret.state.phone import (
+    PhoneState,
+    StillLive,
+    SubmitConflict,
+    UnknownSlug,
 )
-from xumret.state.models import CommandHandle, CommandRecord, StateEvent
-from xumret.state.phone import PhoneState
+from xumret.state.run import Run
 
 logger, *_ = o11y.get_o11y(__name__)
 
@@ -36,75 +38,95 @@ class SingleMain:
         self._tasks: dict[str, asyncio.Task] = {}
 
     async def shutdown(self) -> None:
-        """Cancel in-flight tasks and shut down the executor."""
-        for cid, task in self._tasks.items():
+        for slug, task in list(self._tasks.items()):
             if not task.done():
-                logger.info("shutdown: cancelling task", command_id=cid)
+                logger.info("shutdown: cancelling task", slug=slug)
                 task.cancel()
         if hasattr(self._executor, "shutdown"):
             await self._executor.shutdown()
 
     # --- XumretService interface ---
 
-    async def submit(self, phone_command: PhoneCommand) -> CommandHandle:
-        command_id = uuid.uuid4().hex[:12]
-        record = self._state.create(command_id=command_id, phone_command=phone_command)
-        self._tasks[command_id] = asyncio.create_task(self._run(command_id))
-        return CommandHandle(
-            command_id=record.command_id,
-            status=record.status,
-            created_at=record.created_at,
+    async def list_devices(self) -> list[Device]:
+        host = socket.gethostname()
+        return [Device(id=host, name=host)]
+
+    async def submit(self, phone_command: PhoneCommand) -> RunRecord:
+        run = self._state.submit(phone_command)
+        # Spawn a driver only for a freshly-pending run. A live join already has
+        # a driver running; a cache_for hit returns an existing terminal Run
+        # whose tmpdir holds the captured output — re-driving would mkdtemp a
+        # new (empty) tmpdir and clobber that captured output.
+        needs_driver = run.is_live and (
+            run.slug not in self._tasks or self._tasks[run.slug].done()
         )
+        if needs_driver:
+            self._tasks[run.slug] = asyncio.create_task(
+                self._drive(run), name=f"run[{run.slug}]",
+            )
+        return run.record
 
-    async def get(self, command_id: str) -> CommandRecord | None:
-        return self._state.get(command_id)
+    async def get(self, slug: str) -> RunRecord | None:
+        run = self._state.get(slug)
+        return _slim(run) if run else None
 
-    async def list(self) -> list[CommandRecord]:
-        return self._state.list()
+    async def list(self) -> list[RunRecord]:
+        return [_slim(r) for r in self._state.list()]
 
-    async def cancel(self, command_id: str) -> CommandRecord | None:
-        record = self._state.get(command_id)
-        if not record:
+    async def get_state(self, slug: str) -> RunRecord | None:
+        run = self._state.get(slug)
+        return run.record if run else None
+
+    async def stop(self, slug: str) -> RunRecord | None:
+        run = self._state.get(slug)
+        if run is None:
             return None
-        task = self._tasks.get(command_id)
-        if task and not task.done():
-            task.cancel()
-        await self._executor.cancel(CancelCommand(command_id=command_id))
-        self._state.set_cancelled(command_id)
-        return self._state.get(command_id)
+        if run.is_live:
+            await self._executor.stop(slug)
+        return _slim(run)
 
-    async def query_daemon(self, handle_id: str) -> DaemonStatusReport:
-        return await self._executor.query_daemon(QueryDaemon(handle_id=handle_id))
+    async def reap(self, slug: str) -> bool:
+        try:
+            self._state.reap(slug)
+        except UnknownSlug:
+            return False
+        except StillLive:
+            raise
+        self._tasks.pop(slug, None)
+        return True
 
-    async def end_daemon(self, handle_id: str) -> DaemonEnded:
-        result = await self._executor.end_daemon(EndDaemon(handle_id=handle_id))
-        self._state.set_daemon_ended(handle_id)
-        return result
+    async def step_stdout_bytes(self, slug: str, step_index: int) -> bytes | None:
+        if self._state.get(slug) is None:
+            return None
+        return await self._executor.step_stdout_bytes(slug, step_index)
 
-    def subscribe(self) -> asyncio.Queue[StateEvent]:
+    def subscribe(self) -> asyncio.Queue[RunEvent]:
         return self._state.subscribe()
 
-    def unsubscribe(self, queue: asyncio.Queue[StateEvent]) -> None:
+    def unsubscribe(self, queue: asyncio.Queue[RunEvent]) -> None:
         self._state.unsubscribe(queue)
 
     # --- background execution ---
 
-    async def _run(self, command_id: str) -> None:
-        self._state.set_running(command_id)
-        record = self._state.get(command_id)
-        assert record is not None
-
-        cmd = SubmitCommand(command_id=command_id, phone_command=record.phone_command)
+    async def _drive(self, run: Run) -> None:
         try:
-            response = await self._executor.submit(cmd)
+            await self._executor.run(run)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
-            self._state.set_failed(command_id, error=str(exc))
-            logger.error("command_execution_failed", command_id=command_id, error=str(exc))
-            return
+            logger.exception("executor crashed", slug=run.slug)
+            if run.is_live:
+                run.emit(RunStateFailed(slug=run.slug, at=time.time(), error=str(exc)))
 
-        if isinstance(response, SubmitOneshotResult):
-            self._state.set_completed(command_id, result=response.result)
-        elif isinstance(response, SubmitDaemonStarted):
-            self._state.set_daemon_started(command_id, handle=response.handle)
-        else:  # CommandError
-            self._state.set_failed(command_id, error=response.error)
+
+# --- helpers ---
+
+
+def _slim(run: Run) -> RunRecord:
+    """Slim view: full record without the transition log."""
+    rec = run.record
+    return rec.model_copy(update={"transitions": []})
+
+
+# Re-export for routes layer (HTTP error mapping).
+__all__ = ["SingleMain", "SubmitConflict", "UnknownSlug", "StillLive"]

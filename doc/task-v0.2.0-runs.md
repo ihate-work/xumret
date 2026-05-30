@@ -40,7 +40,7 @@ only at this stage; remote bridge stays out of scope.
 - [ ] Add `Run` class (live handle): `slug`, `phone_command`, `created_at`,
   `status` property, `record` property, `emit(event)`, `subscribe()`.
 
-### A.2 Executor refactor (`src/xumret/executor/local.py`)
+### A.2 Executor refactor (`src/xumret/executor/local_executor.py`)
 
 - [ ] Replace `submit(SubmitCommand) -> Result` with `run(run: Run) -> None`.
   Executor calls `run.emit(...)` instead of returning values.

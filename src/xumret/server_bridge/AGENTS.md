@@ -1,17 +1,13 @@
 # server_bridge
 
-The command protocol between state manager and executor. Shared by both sides in server-executor mode. Also used as plain in-process objects in single mode.
+Server↔executor wire protocol.
 
-## models.py
+OUT OF SCOPE for v0.2.0. The previous content was tied to the pre-Run
+`command_id` protocol and has been removed. Bridge work resumes in a later
+milestone, at which point this package will:
 
-`BridgeCommand` base class with discriminated subtypes:
+- forward submit / stop / reap / query_daemon_status as messages
+- forward `RunStateEvent` and `RunOutputEvent` back to the controller
+- use `slug` as the unified identifier
 
-**Server -> Executor:** `SubmitCommand`, `CancelCommand`, `QueryStatus`, `QueryDaemon`, `EndDaemon`
-
-**Executor -> Server:** `SubmitOneshotResult`, `SubmitDaemonStarted`, `DaemonStatusReport`, `DaemonEnded`, `CommandError`
-
-All reference types from `executor.models` (PhoneCommand, PhoneCommandResult, etc).
-
-## ws.py
-
-WS protocol, framing, reconnect logic. Serializes/deserializes BridgeCommand over WebSocket. Contains `RemoteExecutor` (implements `Executor` protocol by forwarding over WS). Not needed for single mode.
+See `doc/design-process-management.md`.

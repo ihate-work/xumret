@@ -1,21 +1,45 @@
 # executor
 
-Runs commands on the phone via termux-api.
+Drives Runs forward by emitting events.
 
 ## models.py
 
-`PhoneCommand` defines a pipeline of processes (`ProcessStep`, each an `argv: list[str]`) connected by typed `Connection`s (`Pipe` for stdout->stdin, `TempFile` for file-based handoff). Extensible to NamedPipe, Socket, etc.
+`PhoneCommand` defines a pipeline of `CommandStep`s. Forwarding between steps
+is expressed inline on each step's `StreamConfig.forward_dest_process_idx`;
+there is no separate connections list.
 
-Two variants via `daemon` flag:
-- **One-shot** (`daemon=False`): blocks until exit, returns `PhoneCommandResult` (per-step exit code + stdout/stderr).
-- **Daemon** (`daemon=True`): returns `PhoneCommandDaemonHandle` immediately. Query with `query_daemon`, stop with `end_daemon`.
+Each `CommandStep` carries `argv` plus `stdout_stream` and `stderr_stream`
+(`StreamConfig(mode="lines"|"binary", capture=False, forward_dest_process_idx=None)`).
+A stream that is neither captured nor forwarded is implicitly dropped.
 
-The `Executor` protocol lives in `xumret.protocol.executor`. `SingleMain`/`ServerMain` talk to it, never to a concrete implementation.
+`PhoneCommand.run_option: RunOption(timeout, slug, mutex_by_slug)` — caller
+runtime policy. `timeout=None + mutex_by_slug=True` is the daemon-shape
+heuristic used by the frontend; the backend does not model daemons separately.
 
-## local.py
+The `Executor` protocol lives in `xumret.protocol.executor`. Single mode talks
+to `LocalExecutor`; bridge work (deferred) will plug `RemoteExecutor` behind
+the same shape.
 
-`LocalExecutor` — implements `Executor` by running subprocesses directly. Used in single mode.
+## process_graph.py
 
-## agent.py
+`ProcessGraphBuilder` validates a `PhoneCommand` and produces a `ProcessGraph`
+— a flat plan describing per-step stdin source, capture flag, and forward
+edge. Validation rejects empty argv, out-of-range / self-loop / colliding
+forwards, cycles in the forward graph, mutex without slug, and non-positive
+timeout.
 
-`ExecutorAgent` — phone-side WS agent. Wraps a `LocalExecutor` behind the `server_bridge` WS protocol. Used in server-executor mode.
+## local_executor.py
+
+`LocalExecutor` implements `Executor` by spawning subprocesses. Builds a
+`ProcessGraph` first; on validation error the run fails before any spawn.
+Captured streams are tee'd into per-run temp files (path via
+`tmpdir_for(slug)`) and emitted as `RunOutputEvent`s. Forwarded streams flow
+through executor reader tasks (also into the temp file if also captured).
+`RunOption.timeout` is enforced as a wall-clock bound from `RunStateRunning`;
+expiry triggers SIGTERM → grace → SIGKILL and emits `timed_out`.
+
+## dummy_executor.py
+
+`DummyExecutor` emits canned events without spawning processes. Used in
+`xumret single --dummy` and tests. Honors `StreamConfig.capture`; ignores
+forwarding (no real pipes).

@@ -1,39 +1,29 @@
-import { Card } from 'primereact/card';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
-import { Tag } from 'primereact/tag';
+import { Message } from 'primereact/message';
+import { ProgressSpinner } from 'primereact/progressspinner';
 import { useLocation } from 'wouter';
-
-interface Device {
-  id: string;
-  name: string;
-  status: 'online' | 'offline';
-}
-
-const placeholder: Device[] = [
-  { id: 'phone-1', name: 'Pixel 7', status: 'online' },
-];
+import { listDevicesApiDevicesGet, useApi } from '~/_api';
+import { CardBoundary } from '~/components/CardBoundary';
 
 export function DevicesPage() {
   const [, navigate] = useLocation();
+  const { data: devices, error, isLoading } = useApi(listDevicesApiDevicesGet);
 
   return (
-    <Card title="Devices">
-      <DataTable
-        value={placeholder}
-        selectionMode="single"
-        onRowSelect={(e) => navigate(`/devices/${e.data.id}`)}
-      >
-        <Column field="name" header="Name" />
-        <Column field="id" header="ID" />
-        <Column
-          field="status"
-          header="Status"
-          body={(row: Device) => (
-            <Tag value={row.status} severity={row.status === 'online' ? 'success' : 'danger'} />
-          )}
-        />
-      </DataTable>
-    </Card>
+    <CardBoundary title="Devices">
+      {error && <Message severity="error" text={String(error)} />}
+      {isLoading && <ProgressSpinner style={{ width: '2rem', height: '2rem' }} />}
+      {devices && (
+        <DataTable
+          value={devices}
+          selectionMode="single"
+          onRowSelect={(e) => navigate(`/devices/${e.data.id}`)}
+        >
+          <Column field="name" header="Name" />
+          <Column field="id" header="ID" />
+        </DataTable>
+      )}
+    </CardBoundary>
   );
 }

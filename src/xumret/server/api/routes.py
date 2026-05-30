@@ -1,17 +1,22 @@
-"""REST endpoints for command management."""
+"""REST endpoints for run management.
+
+Verbs: GET (safe), POST (named idempotent action). DELETE not used.
+See `doc/design-process-management.md` for semantics.
+"""
 
 from __future__ import annotations
 
-from typing import Any
-
 import ihate_work.o11y as o11y
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 
 from xumret.executor.models import PhoneCommand
+from xumret.protocol.device import Device
 from xumret.protocol.service import XumretService
 from xumret.server.api import get_service
-from xumret.state.models import CommandHandle, CommandRecord
+from xumret.state.models import RunRecord
+from xumret.state.phone import StillLive, SubmitConflict
 
 logger, *_ = o11y.get_o11y(__name__)
 
@@ -22,63 +27,118 @@ class SubmitRequest(BaseModel):
     phone_command: PhoneCommand
 
 
-class CommandResponse(BaseModel):
-    command_id: str
-    status: str
-    result: dict[str, Any] | None = None
-    daemon_handle: dict[str, Any] | None = None
-    error: str | None = None
-    created_at: float
-    updated_at: float
+# --- devices ---
 
 
-def _to_response(record: CommandRecord) -> CommandResponse:
-    return CommandResponse(
-        command_id=record.command_id,
-        status=record.status.value,
-        result=record.result.model_dump() if record.result else None,
-        daemon_handle=record.daemon_handle.model_dump() if record.daemon_handle else None,
-        error=record.error,
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-    )
+@router.get("/devices")
+async def list_devices(
+    svc: XumretService = Depends(get_service),
+) -> list[Device]:
+    return await svc.list_devices()
 
 
-@router.post("/commands")
-async def submit_command(
+# --- submit / list ---
+
+
+@router.post("/runs")
+async def submit_run(
     req: SubmitRequest,
     svc: XumretService = Depends(get_service),
-) -> CommandHandle:
-    logger.info("submit", command_name=req.phone_command.name, daemon=req.phone_command.daemon)
-    return await svc.submit(req.phone_command)
+) -> RunRecord:
+    pc = req.phone_command
+    logger.info(
+        "submit",
+        name=pc.name,
+        timeout=pc.run_option.timeout,
+        slug=pc.run_option.slug,
+        mutex_by_slug=pc.run_option.mutex_by_slug,
+        cache_for=pc.run_option.cache_for,
+    )
+    try:
+        return await svc.submit(pc)
+    except SubmitConflict as e:
+        raise HTTPException(status_code=409, detail={
+            "slug": e.slug, "reason": e.reason,
+        }) from e
 
 
-@router.get("/commands")
-async def list_commands(
+@router.get("/runs")
+async def list_runs(
     svc: XumretService = Depends(get_service),
-) -> list[CommandResponse]:
-    records = await svc.list()
-    return [_to_response(r) for r in records]
+) -> list[RunRecord]:
+    return await svc.list()
 
 
-@router.get("/commands/{command_id}")
-async def get_command(
-    command_id: str,
+# --- per-run ---
+
+
+@router.get("/runs/{slug}")
+async def get_run(
+    slug: str,
     svc: XumretService = Depends(get_service),
-) -> CommandResponse:
-    record = await svc.get(command_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="command not found")
-    return _to_response(record)
+) -> RunRecord:
+    record = await svc.get(slug)
+    if record is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return record
 
 
-@router.delete("/commands/{command_id}")
-async def cancel_command(
-    command_id: str,
+@router.get("/runs/{slug}/state")
+async def get_run_state(
+    slug: str,
     svc: XumretService = Depends(get_service),
-) -> CommandResponse:
-    logger.info("cancel", command_id=command_id)
-    record = await svc.cancel(command_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="command not found")
-    return _to_response(record)
+) -> RunRecord:
+    record = await svc.get_state(slug)
+    if record is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return record
+
+
+@router.post("/runs/{slug}/stop")
+async def stop_run(
+    slug: str,
+    svc: XumretService = Depends(get_service),
+) -> RunRecord:
+    logger.info("stop", slug=slug)
+    record = await svc.stop(slug)
+    if record is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return record
+
+
+@router.get(
+    "/runs/{slug}/steps/{step_index}/stdout",
+    response_class=PlainTextResponse,
+)
+async def get_step_stdout(
+    slug: str,
+    step_index: int,
+    svc: XumretService = Depends(get_service),
+) -> Response:
+    """Return the full captured stdout for one step.
+
+    Unlike `Run.steps[i].stdout_tail` (a 128 KiB tail for live observation),
+    this returns the entire captured payload, suitable for one-shot query
+    commands whose stdout *is* the result.
+    """
+    data = await svc.step_stdout_bytes(slug, step_index)
+    if data is None:
+        raise HTTPException(status_code=404, detail="step stdout not found")
+    return Response(content=data, media_type="text/plain; charset=utf-8")
+
+
+@router.post("/runs/{slug}/reap")
+async def reap_run(
+    slug: str,
+    svc: XumretService = Depends(get_service),
+) -> dict:
+    logger.info("reap", slug=slug)
+    try:
+        ok = await svc.reap(slug)
+    except StillLive as e:
+        raise HTTPException(status_code=409, detail={
+            "slug": e.slug, "reason": "still-live",
+        }) from e
+    if not ok:
+        raise HTTPException(status_code=404, detail="run not found")
+    return {"slug": slug, "reaped": True}
