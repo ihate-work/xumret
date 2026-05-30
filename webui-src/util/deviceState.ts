@@ -17,6 +17,7 @@
 
 import {
   getRunApiRunsSlugGet,
+  getStepStdoutApiRunsSlugStepsStepIndexStdoutGet,
   submitRunApiRunsPost,
   watchRunTerminal,
   type PhoneCommandInput,
@@ -113,23 +114,39 @@ function extractInBandError(parsed: unknown): string | null {
   return typeof msg === 'string' ? msg : null;
 }
 
+async function fetchFullStdout(
+  slug: string,
+  stepIndex: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  // Use the dedicated streaming endpoint, not `Run.steps[i].stdout_tail` —
+  // the latter is a 128 KiB tail for live observation, the former is the
+  // full captured payload. See doc/design-process-management.md.
+  const { data } = await getStepStdoutApiRunsSlugStepsStepIndexStdoutGet({
+    path: { slug, step_index: stepIndex },
+    throwOnError: true,
+    signal,
+  });
+  return data;
+}
+
 async function runAndParse<T>(
   name: string,
   argv: string[],
   opt: FetchOptions,
   signal?: AbortSignal,
 ): Promise<T> {
-  const rec = await runOnce(name, argv, opt, signal);
-  const tail = rec.steps[0]?.stdout_tail ?? '';
-  if (!tail) {
+  await runOnce(name, argv, opt, signal);
+  const stdout = await fetchFullStdout(opt.slug, 0, signal);
+  if (!stdout) {
     throw new Error(`${name} produced no stdout`);
   }
   let values: unknown[];
   try {
-    values = parseJsonValues(tail);
+    values = parseJsonValues(stdout);
   } catch (e) {
     log('%s parse failed len=%d head=%j tail=%j',
-      name, tail.length, tail.slice(0, 200), tail.slice(-200));
+      name, stdout.length, stdout.slice(0, 200), stdout.slice(-200));
     throw new Error(`${name} stdout is not JSON: ${(e as Error).message}`);
   }
   if (values.length === 0) {
@@ -152,9 +169,10 @@ async function runAndCaptureRaw(
   opt: FetchOptions,
   signal?: AbortSignal,
 ): Promise<string> {
-  const rec = await runOnce(name, argv, opt, signal);
-  // Trim trailing newline appended by the run-output joiner.
-  return (rec.steps[0]?.stdout_tail ?? '').replace(/\n$/, '');
+  await runOnce(name, argv, opt, signal);
+  const stdout = await fetchFullStdout(opt.slug, 0, signal);
+  // Trim trailing newline appended by termux-* commands.
+  return stdout.replace(/\n$/, '');
 }
 
 // --- typed slices ---
@@ -211,11 +229,6 @@ export interface SmsMessage {
   received: string;
 }
 
-export interface Contact {
-  name: string;
-  number: string;
-}
-
 export interface CallLogEntry {
   name: string;
   phone_number: string;
@@ -258,10 +271,6 @@ export const fetchTelephony = (signal?: AbortSignal) =>
 export const fetchSmsList = (signal?: AbortSignal) =>
   runAndParse<SmsMessage[]>('sms-list', ['termux-sms-list'],
     { slug: 'sms-list', cacheFor: 30 }, signal);
-
-export const fetchContacts = (signal?: AbortSignal) =>
-  runAndParse<Contact[]>('contact-list', ['termux-contact-list'],
-    { slug: 'contact-list', cacheFor: 300 }, signal);
 
 export const fetchCallLog = (signal?: AbortSignal) =>
   runAndParse<CallLogEntry[]>('call-log', ['termux-call-log'],

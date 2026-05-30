@@ -2,8 +2,8 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { EventStreamApiEventsGetData, EventStreamApiEventsGetResponses, GetRunApiRunsSlugGetData, GetRunApiRunsSlugGetErrors, GetRunApiRunsSlugGetResponses, GetRunStateApiRunsSlugStateGetData, GetRunStateApiRunsSlugStateGetErrors, GetRunStateApiRunsSlugStateGetResponses, ListDevicesApiDevicesGetData, ListDevicesApiDevicesGetResponses, ListRunsApiRunsGetData, ListRunsApiRunsGetResponses, ReapRunApiRunsSlugReapPostData, ReapRunApiRunsSlugReapPostErrors, ReapRunApiRunsSlugReapPostResponses, StopRunApiRunsSlugStopPostData, StopRunApiRunsSlugStopPostErrors, StopRunApiRunsSlugStopPostResponses, SubmitRunApiRunsPostData, SubmitRunApiRunsPostErrors, SubmitRunApiRunsPostResponses } from './types.gen';
-import { zGetRunApiRunsSlugGetResponse, zGetRunStateApiRunsSlugStateGetResponse, zListDevicesApiDevicesGetResponse, zListRunsApiRunsGetResponse, zReapRunApiRunsSlugReapPostResponse, zStopRunApiRunsSlugStopPostResponse, zSubmitRunApiRunsPostResponse } from './zod.gen';
+import type { EventStreamApiEventsGetData, EventStreamApiEventsGetResponses, GetRunApiRunsSlugGetData, GetRunApiRunsSlugGetErrors, GetRunApiRunsSlugGetResponses, GetRunStateApiRunsSlugStateGetData, GetRunStateApiRunsSlugStateGetErrors, GetRunStateApiRunsSlugStateGetResponses, GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetData, GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetErrors, GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponses, ListDevicesApiDevicesGetData, ListDevicesApiDevicesGetResponses, ListRunsApiRunsGetData, ListRunsApiRunsGetResponses, ReapRunApiRunsSlugReapPostData, ReapRunApiRunsSlugReapPostErrors, ReapRunApiRunsSlugReapPostResponses, StopRunApiRunsSlugStopPostData, StopRunApiRunsSlugStopPostErrors, StopRunApiRunsSlugStopPostResponses, SubmitRunApiRunsPostData, SubmitRunApiRunsPostErrors, SubmitRunApiRunsPostResponses } from './types.gen';
+import { zGetRunApiRunsSlugGetResponse, zGetRunStateApiRunsSlugStateGetResponse, zGetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponse, zListDevicesApiDevicesGetResponse, zListRunsApiRunsGetResponse, zReapRunApiRunsSlugReapPostResponse, zStopRunApiRunsSlugStopPostResponse, zSubmitRunApiRunsPostResponse } from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -74,6 +74,21 @@ export const getRunStateApiRunsSlugStateGet = <ThrowOnError extends boolean = fa
 export const stopRunApiRunsSlugStopPost = <ThrowOnError extends boolean = false>(options: Options<StopRunApiRunsSlugStopPostData, ThrowOnError>) => (options.client ?? client).post<StopRunApiRunsSlugStopPostResponses, StopRunApiRunsSlugStopPostErrors, ThrowOnError>({
     responseValidator: async (data) => await zStopRunApiRunsSlugStopPostResponse.parseAsync(data),
     url: '/api/runs/{slug}/stop',
+    ...options
+});
+
+/**
+ * Get Step Stdout
+ *
+ * Return the full captured stdout for one step.
+ *
+ * Unlike `Run.steps[i].stdout_tail` (a 128 KiB tail for live observation),
+ * this returns the entire captured payload, suitable for one-shot query
+ * commands whose stdout *is* the result.
+ */
+export const getStepStdoutApiRunsSlugStepsStepIndexStdoutGet = <ThrowOnError extends boolean = false>(options: Options<GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetData, ThrowOnError>) => (options.client ?? client).get<GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponses, GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetErrors, ThrowOnError>({
+    responseValidator: async (data) => await zGetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponse.parseAsync(data),
+    url: '/api/runs/{slug}/steps/{step_index}/stdout',
     ...options
 });
 

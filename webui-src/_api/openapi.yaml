@@ -125,6 +125,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/runs/{slug}/steps/{step_index}/stdout:
+    get:
+      summary: Get Step Stdout
+      description: 'Return the full captured stdout for one step.
+
+
+        Unlike `Run.steps[i].stdout_tail` (a 128 KiB tail for live observation),
+
+        this returns the entire captured payload, suitable for one-shot query
+
+        commands whose stdout *is* the result.'
+      operationId: get_step_stdout_api_runs__slug__steps__step_index__stdout_get
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      - name: step_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Step Index
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/plain:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/runs/{slug}/reap:
     post:
       summary: Reap Run

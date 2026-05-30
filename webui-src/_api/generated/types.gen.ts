@@ -542,6 +542,40 @@ export type StopRunApiRunsSlugStopPostResponses = {
 
 export type StopRunApiRunsSlugStopPostResponse = StopRunApiRunsSlugStopPostResponses[keyof StopRunApiRunsSlugStopPostResponses];
 
+export type GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetData = {
+    body?: never;
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+        /**
+         * Step Index
+         */
+        step_index: number;
+    };
+    query?: never;
+    url: '/api/runs/{slug}/steps/{step_index}/stdout';
+};
+
+export type GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetError = GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetErrors[keyof GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetErrors];
+
+export type GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: string;
+};
+
+export type GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponse = GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponses[keyof GetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponses];
+
 export type ReapRunApiRunsSlugReapPostData = {
     body?: never;
     path: {

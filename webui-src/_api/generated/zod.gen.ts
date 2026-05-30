@@ -268,6 +268,16 @@ export const zStopRunApiRunsSlugStopPostPath = z.object({
  */
 export const zStopRunApiRunsSlugStopPostResponse = zRunRecord;
 
+export const zGetStepStdoutApiRunsSlugStepsStepIndexStdoutGetPath = z.object({
+    slug: z.string(),
+    step_index: z.int()
+});
+
+/**
+ * Successful Response
+ */
+export const zGetStepStdoutApiRunsSlugStepsStepIndexStdoutGetResponse = z.string();
+
 export const zReapRunApiRunsSlugReapPostPath = z.object({
     slug: z.string()
 });
